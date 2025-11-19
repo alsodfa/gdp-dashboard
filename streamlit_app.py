@@ -179,7 +179,7 @@ def visualize_batter_overall(player_name: str):
     타자_최종성적1/2 에서 지정 지표를 읽어
     - (비율/율/OPS) 묶음: Altair bar + interactive
     - (카운팅 스탯) 묶음: Altair bar + interactive
-    - 아래 표로 원값 출력
+    - 아래 표를 '가로형'으로 표시
     """
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
@@ -296,7 +296,6 @@ def visualize_batter_overall(player_name: str):
         )
         st.altair_chart(chart2, use_container_width=True)
 
-    # 원값 표
     # ---------- 기존 "원값 표" 부분을 아래 코드로 교체 ----------
     st.markdown("#### 원값 표 (가로형)")
 
@@ -316,38 +315,28 @@ def visualize_batter_overall(player_name: str):
         st.caption("비율/OPS (가로형)")
         st.dataframe(rate_table, use_container_width=True, hide_index=True)
 
-    def fmt(row):
-        return f"{row['값']:.0f}" if row["구분"] == "카운팅" else f"{row['값']:.3f}"
-    show_df["표시값"] = show_df.apply(fmt, axis=1)
-    st.dataframe(show_df, use_container_width=True, hide_index=True)
-
 def visualize_batter_monthly_avg(player_name: str):
     """
     월별 추이(타율) 꺾은선 그래프
     사용 파일: 타자_3~4월, 5월, 6월, 7월, 8월, 9월이후
     """
-    # 파일 이름 패턴과 라벨 순서
     month_defs = [
-        ("타자_3~4월.xlsx", "3~4월"),
-        ("타자_5월.xlsx",   "5월"),
-        ("타자_6월.xlsx",   "6월"),
-        ("타자_7월.xlsx",   "7월"),
-        ("타자_8월.xlsx",   "8월"),
+        ("타자_3~4월.xlsx",   "3~4월"),
+        ("타자_5월.xlsx",     "5월"),
+        ("타자_6월.xlsx",     "6월"),
+        ("타자_7월.xlsx",     "7월"),
+        ("타자_8월.xlsx",     "8월"),
         ("타자_9월이후.xlsx", "9월이후"),
     ]
 
     rows = []
     for fname, label in month_defs:
-        # 실제 경로 해석
         p = next((x for x in HITTER_PATHS if x.endswith(fname)), None)
         if not p or not os.path.exists(p):
-            # 파일이 없으면 건너뜀 (나중에 빈 값으로 노출하지 않음)
             continue
-
         df = read_xlsx(p)
         mask = first_col_strip(df) == player_name
         if mask.any():
-            # 타율 컬럼 찾기
             c_avg = get_col(df, ["타율"])
             val = parse_number(df.loc[mask].iloc[0][c_avg]) if c_avg else None
             rows.append({"월": label, "타율": val})
@@ -357,7 +346,6 @@ def visualize_batter_monthly_avg(player_name: str):
         return
 
     trend_df = pd.DataFrame(rows)
-    # 지정 순서대로 카테고리 정렬
     order = [label for _, label in month_defs]
     trend_df["월"] = pd.Categorical(trend_df["월"], categories=order, ordered=True)
     trend_df = trend_df.sort_values("월")
@@ -379,7 +367,7 @@ def visualize_batter_monthly_avg(player_name: str):
 # 실제 호출
 if position == "타자" and selected_player and detail == "세부사항 없음":
     visualize_batter_overall(selected_player)
-    visualize_batter_monthly_avg(selected_player)  # ← 월별추이(타율) 추가
+    visualize_batter_monthly_avg(selected_player)
 elif position == "타자" and not selected_player:
     st.info("타자 데이터를 보려면 상단 검색창에서 선수를 선택하세요.")
 elif position == "투수":
