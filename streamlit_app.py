@@ -173,14 +173,8 @@ if query:
 st.markdown("---")
 st.subheader("스탯 시각화")
 
-# ============== 타자 · 세부사항 없음: 시각화 ==============
+# ============== 타자 · 세부사항 없음: 시각화(이전과 동일) ==============
 def visualize_batter_overall(player_name: str):
-    """
-    타자_최종성적1/2 에서 지정 지표를 읽어
-    - (비율/율/OPS) 묶음: Altair bar + interactive
-    - (카운팅 스탯) 묶음: Altair bar + interactive
-    - 아래 표를 '가로형'으로 표시
-    """
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
     if not f1 or not f2:
@@ -189,18 +183,14 @@ def visualize_batter_overall(player_name: str):
 
     df1 = read_xlsx(f1)
     df2 = read_xlsx(f2)
-
-    # 선수 행 찾기(첫 열이 선수명)
     mask1 = first_col_strip(df1) == player_name
     mask2 = first_col_strip(df2) == player_name
     row1 = df1[mask1]
     row2 = df2[mask2]
-
     if row1.empty and row2.empty:
         st.info("선택한 선수를 최종성적 파일에서 찾지 못했습니다.")
         return
 
-    # -------- df1에서 컬럼 찾기 --------
     c_ab   = get_col(df1, ["타수"])
     c_r    = get_col(df1, ["득점"])
     c_h    = get_col(df1, ["안타"])
@@ -208,7 +198,6 @@ def visualize_batter_overall(player_name: str):
     c_rbi  = get_col(df1, ["타점"])
     c_avg  = get_col(df1, ["타율"])
 
-    # -------- df2에서 컬럼 찾기 --------
     c_bb   = get_col(df2, ["볼넷"])
     c_ibb  = get_col(df2, ["고의4구", "고의 사구", "고의4"])
     c_hbp  = get_col(df2, ["몸에맞는볼", "사구"])
@@ -219,13 +208,10 @@ def visualize_batter_overall(player_name: str):
     c_ops  = get_col(df2, ["ops", "OPS", "OPS(출+장)", "ops(출+장)"])
     c_risp = get_col(df2, ["득점권", "득점권 타율", "득점권타율"])
 
-    # 값 안전 추출 함수(문자/퍼센트 처리)
     def v(df, col):
-        if col is None or df.empty:
-            return None
+        if col is None or df.empty: return None
         return parse_number(df.iloc[0][col])
 
-    # 수치 뽑기
     ab   = v(row1, c_ab)
     r    = v(row1, c_r)
     h    = v(row1, c_h)
@@ -243,10 +229,8 @@ def visualize_batter_overall(player_name: str):
     ops  = v(row2, c_ops)
     risp = v(row2, c_risp)
 
-    # 볼넷 = 볼넷 + 고의4구 + 몸에맞는볼(=사구)
     bb_sum = (bb or 0) + (ibb or 0) + (hbp or 0)
 
-    # 카운팅 스탯 / 비율 스탯 분리
     counting_dict = {
         "타수": ab, "득점": r, "안타": h, "홈런": hr, "타점": rbi,
         "볼넷": bb_sum, "삼진": so, "병살타": gidp
@@ -255,17 +239,10 @@ def visualize_batter_overall(player_name: str):
         "타율": avg, "출루율": obp, "장타율": slg, "OPS(출+장)": ops, "득점권 타율": risp
     }
 
-    # DataFrame으로 변환
-    counting_df = pd.DataFrame(
-        [{"지표": k, "값": v if v is not None else 0} for k, v in counting_dict.items()]
-    )
-    rate_df = pd.DataFrame(
-        [{"지표": k, "값": v if v is not None else 0} for k, v in rate_dict.items()]
-    )
+    counting_df = pd.DataFrame([{"지표": k, "값": v if v is not None else 0} for k, v in counting_dict.items()])
+    rate_df     = pd.DataFrame([{"지표": k, "값": v if v is not None else 0} for k, v in rate_dict.items()])
 
-    # Altair 인터랙티브 바차트(줌/이동 가능) + x축 라벨 가로 고정
     c1, c2 = st.columns(2)
-
     with c1:
         st.markdown(f"#### {player_name} — 카운팅 스탯")
         chart1 = (
@@ -296,30 +273,18 @@ def visualize_batter_overall(player_name: str):
         )
         st.altair_chart(chart2, use_container_width=True)
 
-    # ---------- 원값 표 (가로형) ----------
     st.markdown("#### 원값 표 (가로형)")
-
-    # 가로(열)로 한 줄에 펼치기: 카운팅과 비율/OPS를 분리해서 2개 테이블로 표시
-    # 표시 포맷: 카운팅은 정수, 비율/OPS는 소수 3자리
     counting_row = {k: (0 if (v is None) else int(round(v))) for k, v in counting_dict.items()}
     rate_row     = {k: (0.000 if (v is None) else round(float(v), 3)) for k, v in rate_dict.items()}
-
-    counting_table = pd.DataFrame([counting_row])
-    rate_table     = pd.DataFrame([rate_row])
-
     cta, rta = st.columns(2)
     with cta:
         st.caption("카운팅 스탯 (가로형)")
-        st.dataframe(counting_table, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([counting_row]), use_container_width=True, hide_index=True)
     with rta:
         st.caption("비율/OPS (가로형)")
-        st.dataframe(rate_table, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([rate_row]), use_container_width=True, hide_index=True)
 
 def visualize_batter_monthly_avg(player_name: str):
-    """
-    월별 추이(타율) 꺾은선 그래프
-    사용 파일: 타자_3~4월, 5월, 6월, 7월, 8월, 9월이후
-    """
     month_defs = [
         ("타자_3~4월.xlsx",   "3~4월"),
         ("타자_5월.xlsx",     "5월"),
@@ -328,7 +293,6 @@ def visualize_batter_monthly_avg(player_name: str):
         ("타자_8월.xlsx",     "8월"),
         ("타자_9월이후.xlsx", "9월이후"),
     ]
-
     rows = []
     for fname, label in month_defs:
         p = next((x for x in HITTER_PATHS if x.endswith(fname)), None)
@@ -340,22 +304,19 @@ def visualize_batter_monthly_avg(player_name: str):
             c_avg = get_col(df, ["타율"])
             val = parse_number(df.loc[mask].iloc[0][c_avg]) if c_avg else None
             rows.append({"월": label, "타율": val})
-
     if not rows:
         st.info("월별 타율 데이터를 찾지 못했습니다.")
         return
-
     trend_df = pd.DataFrame(rows)
     order = [label for _, label in month_defs]
     trend_df["월"] = pd.Categorical(trend_df["월"], categories=order, ordered=True)
     trend_df = trend_df.sort_values("월")
-
     st.markdown("#### 월별 추이 — 타율")
     line = (
         alt.Chart(trend_df)
         .mark_line(point=True)
         .encode(
-            x=alt.X("월:N", sort=order, title=None, axis=alt.Axis(labelAngle=0)),  # 라벨 가로
+            x=alt.X("월:N", sort=order, title=None, axis=alt.Axis(labelAngle=0)),
             y=alt.Y("타율:Q", title=None, scale=alt.Scale(domain=[0, 1])),
             tooltip=[alt.Tooltip("월:N"), alt.Tooltip("타율:Q", format=".3f")],
         )
@@ -364,10 +325,103 @@ def visualize_batter_monthly_avg(player_name: str):
     )
     st.altair_chart(line, use_container_width=True)
 
-# 실제 호출
-if position == "타자" and selected_player and detail == "세부사항 없음":
-    visualize_batter_overall(selected_player)
-    visualize_batter_monthly_avg(selected_player)
+# ============== 타자 · 주자 있음/없음: 시각화 ==============
+def visualize_batter_runners(player_name: str, mode: str):
+    """
+    mode: '주자 있음' 또는 '주자 없음'
+    파일: 타자_주자있음.xlsx / 타자_주자없음.xlsx
+    지표:
+      - 타율(텍스트로만 표기)
+      - 막대그래프: 타수, 안타, 2루타, 3루타, 홈런, 타점, (볼넷+몸에맞는볼)=볼넷, 삼진, 병살타
+    """
+    target_file = "타자_주자있음.xlsx" if mode == "주자 있음" else "타자_주자없음.xlsx"
+    p = next((x for x in HITTER_PATHS if x.endswith(target_file)), None)
+    if not p or not os.path.exists(p):
+        st.error(f"{target_file} 파일을 찾을 수 없습니다.")
+        return
+
+    df = read_xlsx(p)
+    mask = first_col_strip(df) == player_name
+    if not mask.any():
+        st.info(f"{mode} 데이터에서 선수를 찾지 못했습니다.")
+        return
+    row = df.loc[mask].iloc[0]
+
+    # 컬럼 매핑
+    c_avg  = get_col(df, ["타율"])
+    c_ab   = get_col(df, ["타수"])
+    c_h    = get_col(df, ["안타"])
+    c_2b   = get_col(df, ["2루타", "2B"])
+    c_3b   = get_col(df, ["3루타", "3B"])
+    c_hr   = get_col(df, ["홈런"])
+    c_rbi  = get_col(df, ["타점"])
+    c_bb   = get_col(df, ["볼넷"])
+    c_hbp  = get_col(df, ["몸에맞는볼", "사구"])
+    c_so   = get_col(df, ["삼진"])
+    c_gidp = get_col(df, ["병살", "병살타"])
+
+    # 값 추출
+    avg  = parse_number(row[c_avg])  if c_avg  else None
+    ab   = parse_number(row[c_ab])   if c_ab   else None
+    h    = parse_number(row[c_h])    if c_h    else None
+    d2   = parse_number(row[c_2b])   if c_2b   else None
+    d3   = parse_number(row[c_3b])   if c_3b   else None
+    hr   = parse_number(row[c_hr])   if c_hr   else None
+    rbi  = parse_number(row[c_rbi])  if c_rbi  else None
+    bb   = parse_number(row[c_bb])   if c_bb   else 0
+    hbp  = parse_number(row[c_hbp])  if c_hbp  else 0
+    so   = parse_number(row[c_so])   if c_so   else None
+    gidp = parse_number(row[c_gidp]) if c_gidp else None
+
+    # 볼넷 = 볼넷 + 몸에맞는볼(=사구)
+    bb_sum = (bb or 0) + (hbp or 0)
+
+    counting = {
+        "타수": ab, "안타": h, "2루타": d2, "3루타": d3,
+        "홈런": hr, "타점": rbi, "볼넷": bb_sum, "삼진": so, "병살타": gidp,
+    }
+    counting_df = pd.DataFrame(
+        [{"지표": k, "값": (0 if v is None else v)} for k, v in counting.items()]
+    )
+
+    # 레이아웃: 왼쪽 타율 텍스트, 오른쪽 막대그래프
+    left, right = st.columns([1, 3])
+    with left:
+        st.markdown(f"#### {player_name} — {mode}")
+        # 타율 텍스트 표기(소수 3자리)
+        if avg is None:
+            st.metric(label="타율", value="N/A")
+        else:
+            st.metric(label="타율", value=f"{avg:.3f}")
+
+    with right:
+        chart = (
+            alt.Chart(counting_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("지표:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("값:Q", title=None),
+                tooltip=["지표", alt.Tooltip("값:Q", format=",.0f")],
+            )
+            .properties(height=360)
+            .interactive()
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+    # 가로형 원값 표(선택 사항: 확인용)
+    with st.expander("원값 (가로형) 보기", expanded=False):
+        row_table = {k: (0 if (v is None) else int(round(v))) for k, v in counting.items()}
+        st.dataframe(pd.DataFrame([row_table]), use_container_width=True, hide_index=True)
+
+# ===================== 호출 분기 =====================
+if position == "타자" and selected_player:
+    if detail == "세부사항 없음":
+        visualize_batter_overall(selected_player)
+        visualize_batter_monthly_avg(selected_player)
+    elif detail in ("주자 있음", "주자 없음"):
+        visualize_batter_runners(selected_player, detail)
+    elif detail in ("월별", "이닝별"):
+        st.info("월별/이닝별 시각화는 타자용 별도 섹션에서 이어서 붙일게!")
 elif position == "타자" and not selected_player:
     st.info("타자 데이터를 보려면 상단 검색창에서 선수를 선택하세요.")
 elif position == "투수":
