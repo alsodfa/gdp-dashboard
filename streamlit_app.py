@@ -3,44 +3,46 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 설정 ---
-DATA_DIR = "data"  # 로컬에서 실행 시 폴더명 주의
-
-# 선수 이름 추출 함수 (항상 첫 번째 열)
-@st.cache_data
-def extract_unique_players(file_list):
-    player_names = set()
-    for file in file_list:
-        df = pd.read_excel(os.path.join(DATA_DIR, file))
-        # '이름' 혹은 '선수' 포함 컬럼 탐색
-        name_cols = [col for col in df.columns if "이름" in col or "선수명" in col]
-        if name_cols:
-            col = name_cols[0]
-            player_names.update(df[col].dropna().astype(str).unique())
-    return sorted(player_names)
-
-
-# --- 사이드바 구성 ---
-st.sidebar.title("분석 조건 설정")
-
-# 포지션 선택 (필수)
-position = st.sidebar.radio("선택", ["투수", "타자"], index=0)
+# 데이터 디렉토리 설정
+DATA_DIR = "/mnt/data"  # 로컬이면 "data" 또는 "./data"
 
 # 파일 분류
 hitter_files = [f for f in os.listdir(DATA_DIR) if f.startswith("2025_타자") and f.endswith(".xlsx")]
 pitcher_files = [f for f in os.listdir(DATA_DIR) if f.startswith("2025_투수") and f.endswith(".xlsx")]
 
+# 선수 이름 추출 함수 ('선수명' 열 고정)
+@st.cache_data
+def extract_player_names(file_list):
+    names = set()
+    for file in file_list:
+        try:
+            df = pd.read_excel(os.path.join(DATA_DIR, file), engine="openpyxl")
+            if "선수명" in df.columns:
+                names.update(df["선수명"].dropna().astype(str).str.strip())
+        except Exception as e:
+            print(f"파일 오류: {file} -> {e}")
+    return sorted(names)
+
+# --- 사이드바 구성 ---
+st.sidebar.title("분석 조건 설정")
+
+# 포지션 선택
+position = st.sidebar.radio("선택", ["투수", "타자"], index=0)
+
 # 포지션에 따라 선수 이름 불러오기
 if position == "타자":
-    player_list = extract_names_from_first_column(hitter_files)
+    player_list = extract_player_names(hitter_files)
 else:
-    player_list = extract_names_from_first_column(pitcher_files)
+    player_list = extract_player_names(pitcher_files)
 
 # 세부사항 단일 선택
 detail_options = ["세부사항없음", "주자 있음", "주자 없음", "이닝별", "월별"]
 detail = st.sidebar.radio("세부사항 (하나만 선택)", detail_options, index=0)
 
-# 월/이닝별 조건 슬라이더
+# 세부 슬라이더
+month_selection = None
+inning_selection = None
+
 if detail == "월별":
     month_selection = st.sidebar.select_slider(
         "월 선택", options=["3~4월", "5월", "6월", "7월", "8월", "9월이후"], value="3~4월"
@@ -53,21 +55,25 @@ elif detail == "이닝별":
 # --- 메인 화면 ---
 st.title("제목 입력")
 
-# 검색창
-search_input = st.text_input("선수 이름 검색", "")
-if search_input:
-    filtered_players = [name for name in player_list if search_input in name]
-    if filtered_players:
-        selected_player = st.selectbox("선수 선택", filtered_players)
-        st.success(f"선택된 선수: {selected_player}")
-    else:
-        st.warning("해당하는 이름의 선수가 없습니다.")
+# ✅ 검색창 (정확히 수정됨)
+search_input = st.text_input("선수 이름 검색", "").strip().lower()
+filtered_players = [name for name in player_list if search_input in name.lower()] if search_input else player_list
 
-# 예시 이미지 출력
+# ✅ selectbox는 항상 노출
+if filtered_players:
+    selected_player = st.selectbox("선수 선택", filtered_players)
+    st.success(f"선택된 선수: {selected_player}")
+else:
+    st.warning("해당하는 이름의 선수가 없습니다.")
+
+# --- 이미지 예시 ---
 if 'selected_player' in locals():
-    image = Image.open("data/선수사진_예시.png")  # 실제 경로로 수정 가능
-    st.image(image, caption=f"{selected_player} 선수", width=200)
+    try:
+        image = Image.open("/mnt/data/39ebc047-b5d6-4b73-8e9a-ec52d898639e.png")
+        st.image(image, caption=f"{selected_player} 선수", width=200)
+    except:
+        st.info("선수 사진을 불러올 수 없습니다.")
 
-# --- 시각화 영역 ---
+# --- 시각화 영역 (추후 확장) ---
 st.subheader("스탯 시각화")
 st.info("선수와 조건을 선택하면 여기에 그래프가 나타납니다.")
