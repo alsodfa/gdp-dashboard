@@ -6,8 +6,7 @@ from PIL import Image
 # 데이터 디렉토리 설정
 DATA_DIR = "data" 
 
-# --- 파일 리스트 생성 및 예외 처리 ---
-# 파일이 없으면 빈 리스트를 반환하여 에러 방지
+# --- 파일 리스트 생성 ---
 try:
     all_files = os.listdir(DATA_DIR)
 except FileNotFoundError:
@@ -17,31 +16,32 @@ except FileNotFoundError:
 hitter_files = [f for f in all_files if f.startswith("2025_타자") and f.endswith(".xlsx")]
 pitcher_files = [f for f in all_files if f.startswith("2025_투수") and f.endswith(".xlsx")]
 
-# --- 선수 이름 추출 함수: '선수명' 열 사용 및 공백 제거 (.str.strip() 추가) ---
+
+# --- 선수 이름 추출 함수: '선수명' 열 명시적 사용 및 공백 제거 ---
 @st.cache_data
 def extract_names_from_first_column(file_list):
     names = set()
-    # 사용자가 '선수명'으로 열 이름을 통일했다고 가정
+    # 사용자가 모든 파일의 첫 번째 열 이름을 '선수명'으로 통일했다고 가정
     COLUMN_NAME_FOR_PLAYER = '선수명' 
     
     for file in file_list:
         try:
-            # header 인자 생략 (첫 행을 헤더로 사용)
+            # ⭐⭐⭐ 핵심 수정: header=1 옵션 제거! 첫 번째 행(index 0)을 헤더로 사용 ⭐⭐⭐
             df = pd.read_excel(os.path.join(DATA_DIR, file), engine="openpyxl") 
             
-            if not df.empty:
-                # '선수명' 컬럼이 있으면 사용, 없으면 첫 번째 컬럼을 fallback으로 사용
-                if COLUMN_NAME_FOR_PLAYER in df.columns:
-                    target_col = COLUMN_NAME_FOR_PLAYER
-                else:
-                    target_col = df.columns[0]
-                    
-                # 선수 이름 문자열에서 공백 제거 (.str.strip()) 후 이름 추출
+            if not df.empty and COLUMN_NAME_FOR_PLAYER in df.columns:
+                target_col = COLUMN_NAME_FOR_PLAYER
+                
+                # 선수 이름 문자열에서 공백 제거 (.str.strip())
+                player_names_series = df[target_col].dropna().astype(str).str.strip()
+                names.update(player_names_series.unique())
+            elif not df.empty:
+                 # 혹시 '선수명'을 못 찾을 경우를 대비한 비상 로직 (첫 번째 열 사용)
+                target_col = df.columns[0]
                 player_names_series = df[target_col].dropna().astype(str).str.strip()
                 names.update(player_names_series.unique())
             
         except Exception as e:
-            # 오류 발생 시 터미널에 메시지 출력
             print(f"파일 로드 오류: {file} -> {e}")
             
     return sorted(names)
@@ -81,7 +81,6 @@ if detail == "월별":
         "월 선택", options=["3~4월", "5월", "6월", "7월", "8월", "9월이후"], value="3~4월"
     )
 elif detail == "이닝별":
-    # 파일 이름을 보면 '회'가 아니라 '이닝'으로 통일하는 것이 좋아 보입니다.
     inning_selection = st.sidebar.select_slider(
         "이닝 선택", options=["1~3이닝", "4~6이닝", "7이닝 이후"], value="1~3이닝"
     )
@@ -108,12 +107,12 @@ if filtered_players:
     selected_player = st.selectbox("선수 선택", filtered_players)
     st.success(f"선택된 선수: **{position}** - **{selected_player}**")
 else:
-    st.warning(f"'{search_input}'이 포함된 {position} 선수가 없습니다.")
+    # 검색되지 않았을 때, 로드된 전체 선수 수를 표시하여 디버깅을 돕습니다.
+    st.warning(f"'{search_input}'이 포함된 {position} 선수가 없습니다. (현재 로드된 {position} 선수: {len(current_player_list)}명)")
 
 # --- 예시 이미지 출력 (선수 선택 시) ---
 if selected_player:
     try:
-        # 이 부분은 실제 선수 사진 파일 경로에 맞게 수정해야 합니다.
         image_path = "data/선수사진_예시.png" 
         image = Image.open(image_path)
         st.image(image, caption=f"{selected_player} 선수", width=200)
