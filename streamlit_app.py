@@ -6,7 +6,7 @@ from PIL import Image
 st.sidebar.title("분석 조건 설정")
 
 # 투수/타자 선택 (필수)
-position = st.sidebar.radio("선택", ["투수", "타자"], index=0)
+position = st.sidebar.radio("필수", ["투수", "타자"], index=0)
 
 # 세부사항 단일 선택 (옵션)
 detail_options = ["세부사항없음", "주자 있음", "주자 없음", "이닝별", "월별"]
