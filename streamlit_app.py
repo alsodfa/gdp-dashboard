@@ -52,7 +52,6 @@ PITCHER_FILES = [
     "2025_투수_주자득점권.xlsx",
     "2025_투수_주자없음.xlsx",
     "2025_투수_주자있음.xlsx",
-    "2025_투수_주자득점권.xlsx",
     "2025_투수_최종성적1.xlsx",
     "2025_투수_최종성적2.xlsx",
     "2025_투수_최종성적3.xlsx",
@@ -77,19 +76,12 @@ def read_xlsx(path):
     return pd.read_excel(path, engine="openpyxl")
 
 def first_col_strip(df):
-    """첫 번째 열(선수명)만 공백 strip 후 반환"""
     return df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
 
 def normalize_colname(s: str) -> str:
-    """컬럼명 비교용 정규화(소문자, 양쪽 공백 제거)"""
     return str(s).strip().lower()
 
 def get_col(df, candidates):
-    """
-    후보 문자열 리스트 중 하나라도 '부분 포함'되면 해당 컬럼명을 반환.
-    - 대소문자 무시
-    - 컬럼명 앞뒤 공백 무시
-    """
     cols = list(df.columns)
     norm_cols = [normalize_colname(c) for c in cols]
     for cand in candidates:
@@ -100,11 +92,6 @@ def get_col(df, candidates):
     return None
 
 def parse_number(x):
-    """
-    문자열 수치 안전 변환:
-    - 공백/콤마 제거, % 포함 시 /100
-    - 빈칸/하이픈 등은 None
-    """
     if x is None:
         return None
     s = str(x).strip()
@@ -121,7 +108,6 @@ def parse_number(x):
         return None
 
 def value_from_any(dfs, candidates, row_masks):
-    """여러 df/마스크에서 후보 컬럼을 찾아 값 하나 반환"""
     for df, m in zip(dfs, row_masks):
         if df is None or m is None or not m.any():
             continue
@@ -145,7 +131,6 @@ def bar_with_labels(data, x_field, y_field, y_fmt, height=350):
     return (bars + labels).properties(height=height).interactive()
 
 def horizontal_row_from_df(df: pd.DataFrame, k_col="지표", v_col="값", is_rate=False):
-    """한 줄 가로 테이블 생성(카운팅: 정수, 비율: 소수3)"""
     row = {}
     for _, r in df.iterrows():
         if is_rate:
@@ -174,7 +159,7 @@ PITCHER_PLAYERS, BROKEN_P = load_player_names(tuple(PITCHER_PATHS))
 # ============== 사이드바 ==============
 st.sidebar.title("설정")
 
-position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=1)  # 기본 타자
+position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=1)
 detail = st.sidebar.radio(
     "세부사항 (하나만 선택)",
     ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"],
@@ -296,12 +281,6 @@ def visualize_batter_monthly_avg(player_name: str):
 
 # ==================== 투수 · 세부사항 없음 ====================
 def visualize_pitcher_overall(player_name: str):
-    """
-    텍스트: ERA, 승/패/세/홀, 이닝(+QS)
-    카운팅 막대: 피안타, 피홈런, 볼넷(=볼넷+사구), 삼진 → 라벨 + 가로형 표
-    비율 막대: WHIP, K/9, BB/9, K/BB, 피OPS, 피안타율 → 라벨 + 가로형 표
-    월별: 피안타율 꺾은선 + 가로형 표
-    """
     paths = {
         "p1": next((p for p in PITCHER_PATHS if p.endswith("투수_최종성적1.xlsx")), None),
         "p2": next((p for p in PITCHER_PATHS if p.endswith("투수_최종성적2.xlsx")), None),
@@ -315,7 +294,6 @@ def visualize_pitcher_overall(player_name: str):
     dfs = {k: (read_xlsx(v) if v else None) for k,v in paths.items()}
     masks = {k: (first_col_strip(df)==player_name if df is not None else None) for k,df in dfs.items()}
 
-    # 텍스트 메트릭
     era   = value_from_any(dfs.values(), ["평균자책","평균자책점","era","평자"], masks.values())
     w     = value_from_any(dfs.values(), ["승","승리","W"], masks.values())
     l     = value_from_any(dfs.values(), ["패","패배","L"], masks.values())
@@ -334,7 +312,6 @@ def visualize_pitcher_overall(player_name: str):
     if qs is not None:
         st.metric("퀄리티스타트", f"{int(round(qs))}")
 
-    # 카운팅 막대 + 라벨 + 가로형 표
     h_allowed = value_from_any(dfs.values(), ["피안타","피 h","h_allowed","피H"], masks.values())
     hr_allowed= value_from_any(dfs.values(), ["피홈런","피 hr","hr_allowed","피HR"], masks.values())
     bb       = value_from_any(dfs.values(), ["볼넷","bb","Base on Balls"], masks.values()) or 0
@@ -354,7 +331,6 @@ def visualize_pitcher_overall(player_name: str):
     st.caption("카운팅 스탯 (가로형)")
     st.dataframe(horizontal_row_from_df(counting_df, is_rate=False), use_container_width=True, hide_index=True)
 
-    # 비율 막대 + 라벨 + 가로형 표
     whip = value_from_any(dfs.values(), ["이닝당출루허용률","whip"], masks.values())
     k9   = value_from_any(dfs.values(), ["9이닝당 삼진","9이닝당삼진","k/9","k9","so/9","삼진/9","탈삼진/9","탈삼진9"], masks.values())
     bb9  = value_from_any(dfs.values(), ["9이닝당볼넷","9이닝당 볼넷","bb/9","bb9","볼넷/9"], masks.values())
@@ -375,7 +351,7 @@ def visualize_pitcher_overall(player_name: str):
     st.caption("비율 지표 (가로형)")
     st.dataframe(horizontal_row_from_df(rate_df, is_rate=True), use_container_width=True, hide_index=True)
 
-    # 월별 피안타율 꺾은선 + 가로형 표
+    # 월별 피안타율
     month_defs = [
         ("투수_3~4월.xlsx","3~4월"),
         ("투수_5월.xlsx","5월"),
@@ -418,7 +394,7 @@ def visualize_pitcher_overall(player_name: str):
 
 # ==================== 투수 · 주자 있음/없음 ====================
 def visualize_pitcher_onbase(player_name: str, has_runner: bool):
-    """주자 있음/없음 상황별: 막대(피안타,2루타,3루타,홈런,볼넷=볼넷+사구,삼진) + 가로형 표, 피안타율은 별도 표기"""
+    """주자 있음/없음: 피안타율 메트릭을 맨 위에 표시 → 그 다음 막대 그래프 + 가로형 표"""
     suffix = "투수_주자있음.xlsx" if has_runner else "투수_주자없음.xlsx"
     path = next((p for p in PITCHER_PATHS if p.endswith(suffix)), None)
     if not path:
@@ -431,7 +407,6 @@ def visualize_pitcher_onbase(player_name: str, has_runner: bool):
         st.info("선택한 선수를 해당 파일에서 찾지 못했습니다.")
         return
 
-    # 지표 추출
     h_allowed = value_from_any([df], ["피안타","피 H","H_ALLOWED","H"], [mask]) or 0
     double    = value_from_any([df], ["2루타","2B","2루"], [mask]) or 0
     triple    = value_from_any([df], ["3루타","3B","3루"], [mask]) or 0
@@ -441,8 +416,13 @@ def visualize_pitcher_onbase(player_name: str, has_runner: bool):
     so        = value_from_any([df], ["삼진","SO","K"], [mask]) or 0
     oavg      = value_from_any([df], ["피안타율","피타율","OAVG","BAA","AVG"], [mask])
 
-    bb_sum = (bb or 0) + (hbp or 0)
+    # ✅ 피안타율 메트릭을 맨 위로
+    title = "주자 있음" if has_runner else "주자 없음"
+    st.markdown(f"#### {player_name} — {title}")
+    st.metric(f"{title} — 피안타율", "N/A" if oavg is None else f"{oavg:.3f}")
 
+    # 막대그래프
+    bb_sum = (bb or 0) + (hbp or 0)
     bar_df = pd.DataFrame([
         {"지표":"피안타", "값": h_allowed},
         {"지표":"2루타", "값": double},
@@ -451,16 +431,11 @@ def visualize_pitcher_onbase(player_name: str, has_runner: bool):
         {"지표":"볼넷",  "값": bb_sum},
         {"지표":"삼진",  "값": so},
     ])
-
-    title = "주자 있음" if has_runner else "주자 없음"
-    st.markdown(f"#### {player_name} — {title} : 카운팅 스탯")
     st.altair_chart(bar_with_labels(bar_df, "지표", "값", ",.0f", height=340), use_container_width=True)
 
-    # 가로형 표 + 피안타율 별도 표기
+    # 가로형 표
     st.caption(f"{title} — 카운팅 스탯 (가로형)")
     st.dataframe(horizontal_row_from_df(bar_df, is_rate=False), use_container_width=True, hide_index=True)
-
-    st.metric(f"{title} — 피안타율", "N/A" if oavg is None else f"{oavg:.3f}")
 
 # ===================== 호출 분기 =====================
 if position == "타자" and selected_player:
