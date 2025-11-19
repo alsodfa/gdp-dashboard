@@ -1,151 +1,60 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+from PIL import Image
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# --- 사이드바 구성 ---
+st.sidebar.title("분석 조건 설정")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# 투수/타자 선택 (필수)
+position = st.sidebar.radio("선택", ["투수", "타자"], index=0)
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# 세부사항 단일 선택 (옵션)
+detail_options = ["세부사항없음", "주자 있음", "주자 없음", "이닝별", "월별"]
+detail = st.sidebar.radio("세부사항 (하나만 선택)", detail_options, index=0)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+# 월별 또는 이닝별 선택 시 슬라이더 등장
+month_selection = None
+inning_selection = None
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+if detail == "월별":
+    month_selection = st.sidebar.select_slider(
+        "월 선택",
+        options=["3~4월", "5월", "6월", "7월", "8월", "9월이후"],
+        value="3~4월"
+    )
+elif detail == "이닝별":
+    inning_selection = st.sidebar.select_slider(
+        "이닝 선택",
+        options=["1~3이닝", "4~6이닝", "7이닝 이후"],
+        value="1~3이닝"
     )
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# --- 메인 화면 ---
+st.title("제목 입력")
 
-    return gdp_df
+# 선수 검색창 (자동완성)
+all_players = ["최원태", "원태인", "정우영", "김현수"]  # 예시 리스트
+selected_player = st.text_input("선수 이름 검색", "")
 
-gdp_df = get_gdp_data()
+# 필터된 선수 리스트 보여주기
+if selected_player:
+    filtered_players = [p for p in all_players if selected_player in p]
+    if filtered_players:
+        selected_player = st.selectbox("선수 선택", filtered_players)
+    else:
+        st.warning("해당 이름을 포함하는 선수가 없습니다.")
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+# 선수 사진 띄우기 (예시)
+if selected_player:
+    image = Image.open("/mnt/data/39ebc047-b5d6-4b73-8e9a-ec52d898639e.png")  # 사용자 업로드 사진 사용
+    st.image(image, caption=f"{selected_player} 선수", width=200)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+# --- 시각화 영역 (임시) ---
+st.subheader("스탯 시각화")
+st.info("선수와 조건을 선택하면 여기에 그래프가 나타납니다.")
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+# TODO: 선택한 조건(position, detail, 월/이닝 범위 등)에 따라 데이터 필터링 및 시각화
+# 예: df[(df["선수"] == selected_player) & (df["이닝"] >= inning_range[0])] 등
 
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# Streamlit 실행 예시:
+# streamlit run streamlit_baseball_dashboard.py
