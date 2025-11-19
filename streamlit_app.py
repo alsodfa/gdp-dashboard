@@ -13,7 +13,7 @@ try:
 except Exception as e:
     st.error(
         "엑셀(xlsx) 읽기에 필요한 openpyxl이 없습니다.\n"
-        "requirements.txt에 `openpyxl>=3.1.2`를 추가하거나 로컬은 `pip install openpyxl`을 실행하세요.\n\n"
+        "requirements.txt에 `openpyxl>=3.1.2`를 추가하거나 로컬이면 `pip install openpyxl`을 실행하세요.\n\n"
         f"원본 에러: {e}"
     )
     st.stop()
@@ -173,7 +173,7 @@ if query:
 st.markdown("---")
 st.subheader("스탯 시각화")
 
-# ============== 타자 · 세부사항 없음: 시각화(이전과 동일) ==============
+# ============== 타자 · 세부사항 없음 ==============
 def visualize_batter_overall(player_name: str):
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
@@ -284,6 +284,7 @@ def visualize_batter_overall(player_name: str):
         st.caption("비율/OPS (가로형)")
         st.dataframe(pd.DataFrame([rate_row]), use_container_width=True, hide_index=True)
 
+# ============== 타자 · 월별 타율 추이(꺾은선 참고 그래프) ==============
 def visualize_batter_monthly_avg(player_name: str):
     month_defs = [
         ("타자_3~4월.xlsx",   "3~4월"),
@@ -325,25 +326,21 @@ def visualize_batter_monthly_avg(player_name: str):
     )
     st.altair_chart(line, use_container_width=True)
 
-# ============== 타자 · 주자 있음/없음: 시각화 ==============
-def visualize_batter_runners(player_name: str, mode: str):
+# ============== 공통: 한 파일에서 시각화(주자/이닝/월별에 사용) ==============
+def visualize_batter_from_file(player_name: str, filepath: str, title_suffix: str):
     """
-    mode: '주자 있음' 또는 '주자 없음'
-    파일: 타자_주자있음.xlsx / 타자_주자없음.xlsx
-    지표:
-      - 타율(텍스트로만 표기)
-      - 막대그래프: 타수, 안타, 2루타, 3루타, 홈런, 타점, (볼넷+몸에맞는볼)=볼넷, 삼진, 병살타
+    지정 파일에서 한 선수 행을 찾아 시각화.
+    - 타율은 텍스트로만 표기
+    - 막대그래프: 타수, 안타, 2루타, 3루타, 홈런, 타점, 볼넷(=볼넷+사구), 삼진, 병살타
     """
-    target_file = "타자_주자있음.xlsx" if mode == "주자 있음" else "타자_주자없음.xlsx"
-    p = next((x for x in HITTER_PATHS if x.endswith(target_file)), None)
-    if not p or not os.path.exists(p):
-        st.error(f"{target_file} 파일을 찾을 수 없습니다.")
+    if not filepath or not os.path.exists(filepath):
+        st.error(f"파일을 찾을 수 없습니다: {os.path.basename(filepath) if filepath else filepath}")
         return
 
-    df = read_xlsx(p)
+    df = read_xlsx(filepath)
     mask = first_col_strip(df) == player_name
     if not mask.any():
-        st.info(f"{mode} 데이터에서 선수를 찾지 못했습니다.")
+        st.info(f"{title_suffix} 데이터에서 선수를 찾지 못했습니다.")
         return
     row = df.loc[mask].iloc[0]
 
@@ -387,8 +384,7 @@ def visualize_batter_runners(player_name: str, mode: str):
     # 레이아웃: 왼쪽 타율 텍스트, 오른쪽 막대그래프
     left, right = st.columns([1, 3])
     with left:
-        st.markdown(f"#### {player_name} — {mode}")
-        # 타율 텍스트 표기(소수 3자리)
+        st.markdown(f"#### {player_name} — {title_suffix}")
         if avg is None:
             st.metric(label="타율", value="N/A")
         else:
@@ -408,20 +404,70 @@ def visualize_batter_runners(player_name: str, mode: str):
         )
         st.altair_chart(chart, use_container_width=True)
 
-    # 가로형 원값 표(선택 사항: 확인용)
+    # 확인용 가로 테이블(접기)
     with st.expander("원값 (가로형) 보기", expanded=False):
         row_table = {k: (0 if (v is None) else int(round(v))) for k, v in counting.items()}
         st.dataframe(pd.DataFrame([row_table]), use_container_width=True, hide_index=True)
+
+# ============== 타자 · 주자 있음/없음 ==============
+def visualize_batter_runners(player_name: str, mode: str):
+    target_file = "타자_주자있음.xlsx" if mode == "주자 있음" else "타자_주자없음.xlsx"
+    p = next((x for x in HITTER_PATHS if x.endswith(target_file)), None)
+    visualize_batter_from_file(player_name, p, mode)
+
+# ============== 타자 · 이닝별 ==============
+def visualize_batter_by_inning(player_name: str, inning_label: str):
+    """
+    inning_label: "1~3이닝" / "4~6이닝" / "7이후"
+    파일 매핑:
+      1~3이닝 → 타자_1~3회.xlsx
+      4~6이닝 → 타자_4~6회.xlsx
+      7이후   → 타자_7회이후.xlsx
+    """
+    mapping = {
+        "1~3이닝": "타자_1~3회.xlsx",
+        "4~6이닝": "타자_4~6회.xlsx",
+        "7이후":   "타자_7회이후.xlsx",
+    }
+    fname = mapping.get(inning_label)
+    p = next((x for x in HITTER_PATHS if x.endswith(fname)), None) if fname else None
+    visualize_batter_from_file(player_name, p, f"이닝별 — {inning_label}")
+
+# ============== 타자 · 월별 ==============
+def visualize_batter_by_month(player_name: str, month_label: str):
+    """
+    month_label: "3~4월" / "5월" / "6월" / "7월" / "8월" / "9이후"
+    파일 매핑 동명칭 사용
+    """
+    mapping = {
+        "3~4월": "타자_3~4월.xlsx",
+        "5월":   "타자_5월.xlsx",
+        "6월":   "타자_6월.xlsx",
+        "7월":   "타자_7월.xlsx",
+        "8월":   "타자_8월.xlsx",
+        "9이후": "타자_9월이후.xlsx",
+    }
+    fname = mapping.get(month_label)
+    p = next((x for x in HITTER_PATHS if x.endswith(fname)), None) if fname else None
+    visualize_batter_from_file(player_name, p, f"월별 — {month_label}")
 
 # ===================== 호출 분기 =====================
 if position == "타자" and selected_player:
     if detail == "세부사항 없음":
         visualize_batter_overall(selected_player)
-        visualize_batter_monthly_avg(selected_player)
+        visualize_batter_monthly_avg(selected_player)  # 참고용 꺾은선
     elif detail in ("주자 있음", "주자 없음"):
         visualize_batter_runners(selected_player, detail)
-    elif detail in ("월별", "이닝별"):
-        st.info("월별/이닝별 시각화는 타자용 별도 섹션에서 이어서 붙일게!")
+    elif detail == "이닝별":
+        if inning_selection:
+            visualize_batter_by_inning(selected_player, inning_selection)
+        else:
+            st.info("이닝을 선택하세요.")
+    elif detail == "월별":
+        if month_selection:
+            visualize_batter_by_month(selected_player, month_selection)
+        else:
+            st.info("월을 선택하세요.")
 elif position == "타자" and not selected_player:
     st.info("타자 데이터를 보려면 상단 검색창에서 선수를 선택하세요.")
 elif position == "투수":
