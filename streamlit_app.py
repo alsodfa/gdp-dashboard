@@ -206,7 +206,7 @@ if query:
 st.markdown("---")
 st.subheader("스탯 시각화")
 
-# ==================== 타자 (세부사항 없음 + 월별 타율 추이) ====================
+# ==================== 타자 · 세부사항 없음 + 월별 추이(타율) ====================
 def visualize_batter_overall(player_name: str):
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
@@ -240,11 +240,14 @@ def visualize_batter_overall(player_name: str):
 
     bb_sum = (bb or 0) + (ibb or 0) + (hbp or 0)
 
+    # 상단 텍스트 메트릭(타율)
+    st.metric("타율", "N/A" if avg is None else f"{avg:.3f}")
+
     counting_df = pd.DataFrame([{"지표": k, "값": v if v is not None else 0} for k, v in {
         "타수":ab,"득점":r,"안타":h,"홈런":hr,"타점":rbi,"볼넷":bb_sum,"삼진":so,"병살타":gidp
     }.items()])
     rate_df = pd.DataFrame([{"지표": k, "값": v if v is not None else 0} for k, v in {
-        "타율":avg,"출루율":obp,"장타율":slg,"OPS(출+장)":ops,"득점권 타율":risp
+        "출루율":obp,"장타율":slg,"OPS(출+장)":ops,"득점권 타율":risp
     }.items()])
 
     c1,c2=st.columns(2)
@@ -255,7 +258,7 @@ def visualize_batter_overall(player_name: str):
         st.dataframe(horizontal_row_from_df(counting_df, is_rate=False), use_container_width=True, hide_index=True)
 
     with c2:
-        st.markdown(f"#### {player_name} — 비율/율/OPS")
+        st.markdown(f"#### {player_name} — 비율/OPS")
         chart = bar_with_labels(rate_df, "지표", "값", ".3f", height=350).encode(
             y=alt.Y("값:Q", title=None, scale=alt.Scale(domain=[0,2]))
         )
@@ -292,6 +295,169 @@ def visualize_batter_monthly_avg(player_name: str):
             tooltip=[alt.Tooltip("월:N"), alt.Tooltip("타율:Q", format=".3f")]
         ).properties(height=320).interactive()
     , use_container_width=True)
+
+# ==================== 타자 · 주자 있음/없음 ====================
+def visualize_batter_onbase(player_name: str, has_runner: bool):
+    """주자 있음/없음: 타율 메트릭(맨 위) → 막대(타수,안타,2루타,3루타,홈런,타점,볼넷=볼넷+사구,삼진,병살타) → 가로형 표"""
+    suffix = "타자_주자있음.xlsx" if has_runner else "타자_주자없음.xlsx"
+    path = next((p for p in HITTER_PATHS if p.endswith(suffix)), None)
+    if not path:
+        st.error(f"{suffix} 파일을 찾을 수 없습니다.")
+        return
+
+    df = read_xlsx(path)
+    mask = first_col_strip(df) == player_name
+    if not mask.any():
+        st.info("선택한 선수를 해당 파일에서 찾지 못했습니다.")
+        return
+
+    # 카운팅
+    ab  = value_from_any([df], ["타수"], [mask]) or 0
+    h   = value_from_any([df], ["안타"], [mask]) or 0
+    d2  = value_from_any([df], ["2루타","2B","2루"], [mask]) or 0
+    d3  = value_from_any([df], ["3루타","3B","3루"], [mask]) or 0
+    hr  = value_from_any([df], ["홈런","HR"], [mask]) or 0
+    rbi = value_from_any([df], ["타점"], [mask]) or 0
+    bb  = value_from_any([df], ["볼넷","BB"], [mask]) or 0
+    hbp = value_from_any([df], ["몸에맞는볼","사구","HBP"], [mask]) or 0
+    so  = value_from_any([df], ["삼진","SO","K"], [mask]) or 0
+    gd  = value_from_any([df], ["병살","병살타","GIDP"], [mask]) or 0
+    avg = value_from_any([df], ["타율","AVG"], [mask])
+
+    # ✅ 주자뷰에서는 볼넷=볼넷+사구로 표기
+    bb_sum = (bb or 0) + (hbp or 0)
+
+    # 메트릭 먼저
+    title = "주자 있음" if has_runner else "주자 없음"
+    st.markdown(f"#### {player_name} — {title}")
+    st.metric(f"{title} — 타율", "N/A" if avg is None else f"{avg:.3f}")
+
+    bar_df = pd.DataFrame([
+        {"지표":"타수","값":ab},
+        {"지표":"안타","값":h},
+        {"지표":"2루타","값":d2},
+        {"지표":"3루타","값":d3},
+        {"지표":"홈런","값":hr},
+        {"지표":"타점","값":rbi},
+        {"지표":"볼넷","값":bb_sum},
+        {"지표":"삼진","값":so},
+        {"지표":"병살타","값":gd},
+    ])
+    st.altair_chart(bar_with_labels(bar_df, "지표", "값", ",.0f", height=340), use_container_width=True)
+
+    st.caption(f"{title} — 카운팅 스탯 (가로형)")
+    st.dataframe(horizontal_row_from_df(bar_df, is_rate=False), use_container_width=True, hide_index=True)
+
+# ==================== 타자 · 이닝별 ====================
+def visualize_batter_inning(player_name: str, inning_label: str):
+    """이닝별: 타율 메트릭(맨 위) → 막대(카운팅) → 가로형 표"""
+    mapping = {
+        "1~3이닝": "타자_1~3회.xlsx",
+        "4~6이닝": "타자_4~6회.xlsx",
+        "7이후":   "타자_7회이후.xlsx",
+    }
+    fname = mapping.get(inning_label)
+    path = next((p for p in HITTER_PATHS if fname and p.endswith(fname)), None)
+    if not path:
+        st.error(f"{inning_label} 파일을 찾을 수 없습니다.")
+        return
+
+    df = read_xlsx(path)
+    mask = first_col_strip(df) == player_name
+    if not mask.any():
+        st.info("선택한 선수를 해당 파일에서 찾지 못했습니다.")
+        return
+
+    ab  = value_from_any([df], ["타수"], [mask]) or 0
+    h   = value_from_any([df], ["안타"], [mask]) or 0
+    d2  = value_from_any([df], ["2루타","2B","2루"], [mask]) or 0
+    d3  = value_from_any([df], ["3루타","3B","3루"], [mask]) or 0
+    hr  = value_from_any([df], ["홈런","HR"], [mask]) or 0
+    rbi = value_from_any([df], ["타점"], [mask]) or 0
+    bb  = value_from_any([df], ["볼넷","BB"], [mask]) or 0
+    hbp = value_from_any([df], ["몸에맞는볼","사구","HBP"], [mask]) or 0
+    so  = value_from_any([df], ["삼진","SO","K"], [mask]) or 0
+    gd  = value_from_any([df], ["병살","병살타","GIDP"], [mask]) or 0
+    avg = value_from_any([df], ["타율","AVG"], [mask])
+
+    # 이닝별도 볼넷=볼넷+사구
+    bb_sum = (bb or 0) + (hbp or 0)
+
+    st.markdown(f"#### {player_name} — 이닝별 ({inning_label})")
+    st.metric(f"{inning_label} — 타율", "N/A" if avg is None else f"{avg:.3f}")
+
+    bar_df = pd.DataFrame([
+        {"지표":"타수","값":ab},
+        {"지표":"안타","값":h},
+        {"지표":"2루타","값":d2},
+        {"지표":"3루타","값":d3},
+        {"지표":"홈런","값":hr},
+        {"지표":"타점","값":rbi},
+        {"지표":"볼넷","값":bb_sum},
+        {"지표":"삼진","값":so},
+        {"지표":"병살타","값":gd},
+    ])
+    st.altair_chart(bar_with_labels(bar_df, "지표", "값", ",.0f", height=340), use_container_width=True)
+
+    st.caption(f"{inning_label} — 카운팅 스탯 (가로형)")
+    st.dataframe(horizontal_row_from_df(bar_df, is_rate=False), use_container_width=True, hide_index=True)
+
+# ==================== 타자 · 월별 ====================
+def visualize_batter_month(player_name: str, month_label: str):
+    """월별: 타율 메트릭(맨 위) → 막대(카운팅) → 가로형 표"""
+    mapping = {
+        "3~4월": "타자_3~4월.xlsx",
+        "5월":   "타자_5월.xlsx",
+        "6월":   "타자_6월.xlsx",
+        "7월":   "타자_7월.xlsx",
+        "8월":   "타자_8월.xlsx",
+        "9이후": "타자_9월이후.xlsx",
+    }
+    fname = mapping.get(month_label)
+    path = next((p for p in HITTER_PATHS if fname and p.endswith(fname)), None)
+    if not path:
+        st.error(f"{month_label} 파일을 찾을 수 없습니다.")
+        return
+
+    df = read_xlsx(path)
+    mask = first_col_strip(df) == player_name
+    if not mask.any():
+        st.info("선택한 선수를 해당 파일에서 찾지 못했습니다.")
+        return
+
+    ab  = value_from_any([df], ["타수"], [mask]) or 0
+    h   = value_from_any([df], ["안타"], [mask]) or 0
+    d2  = value_from_any([df], ["2루타","2B","2루"], [mask]) or 0
+    d3  = value_from_any([df], ["3루타","3B","3루"], [mask]) or 0
+    hr  = value_from_any([df], ["홈런","HR"], [mask]) or 0
+    rbi = value_from_any([df], ["타점"], [mask]) or 0
+    bb  = value_from_any([df], ["볼넷","BB"], [mask]) or 0
+    hbp = value_from_any([df], ["몸에맞는볼","사구","HBP"], [mask]) or 0
+    so  = value_from_any([df], ["삼진","SO","K"], [mask]) or 0
+    gd  = value_from_any([df], ["병살","병살타","GIDP"], [mask]) or 0
+    avg = value_from_any([df], ["타율","AVG"], [mask])
+
+    # 월별도 볼넷=볼넷+사구
+    bb_sum = (bb or 0) + (hbp or 0)
+
+    st.markdown(f"#### {player_name} — 월별 ({month_label})")
+    st.metric(f"{month_label} — 타율", "N/A" if avg is None else f"{avg:.3f}")
+
+    bar_df = pd.DataFrame([
+        {"지표":"타수","값":ab},
+        {"지표":"안타","값":h},
+        {"지표":"2루타","값":d2},
+        {"지표":"3루타","값":d3},
+        {"지표":"홈런","값":hr},
+        {"지표":"타점","값":rbi},
+        {"지표":"볼넷","값":bb_sum},
+        {"지표":"삼진","값":so},
+        {"지표":"병살타","값":gd},
+    ])
+    st.altair_chart(bar_with_labels(bar_df, "지표", "값", ",.0f", height=340), use_container_width=True)
+
+    st.caption(f"{month_label} — 카운팅 스탯 (가로형)")
+    st.dataframe(horizontal_row_from_df(bar_df, is_rate=False), use_container_width=True, hide_index=True)
 
 # ==================== 투수 · 세부사항 없음 ====================
 def visualize_pitcher_overall(player_name: str):
@@ -339,7 +505,6 @@ def visualize_pitcher_overall(player_name: str):
     bb       = value_from_any(dfs.values(), ["볼넷","bb","Base on Balls"], masks.values()) or 0
     hbp      = value_from_any(dfs.values(), ["몸에맞는볼","사구","hbp"], masks.values()) or 0
     so       = value_from_any(dfs.values(), ["삼진","so","k"], masks.values())
-
     bb_sum = (bb or 0) + (hbp or 0)
 
     counting_df = pd.DataFrame([
@@ -417,7 +582,7 @@ def visualize_pitcher_overall(player_name: str):
 
 # ==================== 투수 · 주자 있음/없음 ====================
 def visualize_pitcher_onbase(player_name: str, has_runner: bool):
-    """주자 있음/없음: 피안타율 메트릭(맨 위) → 막대(피안타,2루타,3루타,홈런,볼넷=볼넷+사구,삼진) → 가로형 표"""
+    """주자 있음/없음: 피안타율 메트릭(맨 위) → 막대 → 가로형 표"""
     suffix = "투수_주자있음.xlsx" if has_runner else "투수_주자없음.xlsx"
     path = next((p for p in PITCHER_PATHS if p.endswith(suffix)), None)
     if not path:
@@ -459,7 +624,6 @@ def visualize_pitcher_onbase(player_name: str, has_runner: bool):
 
 # ==================== 투수 · 이닝별 ====================
 def visualize_pitcher_inning(player_name: str, inning_label: str):
-    """이닝별: 선택값에 따라 해당 파일을 열어 주자있음/없음과 동일 포맷으로 시각화"""
     mapping = {
         "1~3이닝": "투수_1~3회.xlsx",
         "4~6이닝": "투수_4~6회.xlsx",
@@ -505,7 +669,6 @@ def visualize_pitcher_inning(player_name: str, inning_label: str):
 
 # ==================== 투수 · 월별 ====================
 def visualize_pitcher_month(player_name: str, month_label: str):
-    """월별: 선택값에 따라 해당 파일을 열어 주자있음/없음과 동일 포맷으로 시각화"""
     mapping = {
         "3~4월": "투수_3~4월.xlsx",
         "5월":   "투수_5월.xlsx",
@@ -556,9 +719,15 @@ def visualize_pitcher_month(player_name: str, month_label: str):
 if position == "타자" and selected_player:
     if detail == "세부사항 없음":
         visualize_batter_overall(selected_player)
-        visualize_batter_monthly_avg(selected_player)
-    else:
-        st.info("타자 주자/이닝/월별 시각화는 앞서 만든 함수로 동작합니다.")
+        visualize_batter_monthly_avg(selected_player)  # 꺾은선 추이
+    elif detail == "주자 있음":
+        visualize_batter_onbase(selected_player, has_runner=True)
+    elif detail == "주자 없음":
+        visualize_batter_onbase(selected_player, has_runner=False)
+    elif detail == "이닝별":
+        visualize_batter_inning(selected_player, inning_selection)
+    elif detail == "월별":
+        visualize_batter_month(selected_player, month_selection)
 elif position == "투수" and selected_player:
     if detail == "세부사항 없음":
         visualize_pitcher_overall(selected_player)
