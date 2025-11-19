@@ -1,130 +1,130 @@
 import os
+from glob import glob
 import streamlit as st
 import pandas as pd
-with st.expander("엑셀/의존성 진단", expanded=False):
-    try:
-        import openpyxl  # noqa: F401
-        st.success("openpyxl 설치 OK")
-    except Exception as e:
-        st.error(f"openpyxl 미설치/에러: {e}")
 
-    import os
-    from glob import glob
-    files = sorted(glob(os.path.join(BASE_DIR, "*.xlsx")))
-    st.write("발견된 엑셀 파일 수:", len(files))
-    for f in files[:10]:
-        st.write("•", f)
-
-    try:
-        # 존재하는 파일 하나를 골라 1열만 미리보기
-        if files:
-            import pandas as pd
-            df_head = pd.read_excel(files[0], engine="openpyxl").iloc[:, :1].head()
-            st.write("샘플 미리보기(첫 번째 파일 1열):")
-            st.dataframe(df_head)
-    except Exception as e:
-        st.error(f"읽기 테스트 실패: {e}")
-
+# ----------------- 기본 설정 -----------------
 st.set_page_config(page_title="2025 시즌 스탯 시각화", layout="wide")
 
-# 0) 필수 라이브러리 체크
+# openpyxl 의존성 체크 (없으면 친절히 멈춤)
 try:
     import openpyxl  # noqa: F401
-except ImportError as e:
+except Exception as e:
     st.error(
-        "엑셀 파일(xlsx)을 읽으려면 `openpyxl`이 필요합니다.\n\n"
-        "✅ 해결 방법\n"
-        "1) requirements.txt에 `openpyxl>=3.1.2` 추가 후 재배포\n"
-        "2) (로컬) `pip install openpyxl`\n\n"
+        "엑셀 파일(xlsx)을 읽으려면 openpyxl이 필요합니다.\n"
+        "requirements.txt에 `openpyxl>=3.1.2` 추가 후 재배포하거나, 로컬이면 `pip install openpyxl`을 실행하세요.\n\n"
         f"원본 에러: {e}"
     )
     st.stop()
 
-# 1) 파일 경로 설정
-#   - 앱 파일들과 엑셀이 같은 폴더에 있으면 "."이면 됩니다.
-#   - 혹시 스트림릿 클라우드에서 경로가 다르면 os.getcwd() 기준으로 상대경로 확인돼요.
-BASE_DIR = "."
-
-HITTER_FILES = [
-    "2025_타자_1~3회.xlsx", "2025_타자_3~4월.xlsx", "2025_타자_4~6회.xlsx",
-    "2025_타자_5월.xlsx", "2025_타자_6월.xlsx", "2025_타자_7월.xlsx",
-    "2025_타자_7회이후.xlsx", "2025_타자_8월.xlsx", "2025_타자_9월이후.xlsx",
-    "2025_타자_주자득점권.xlsx", "2025_타자_주자없음.xlsx", "2025_타자_주자있음.xlsx",
-    "2025_타자_최종성적1.xlsx", "2025_타자_최종성적2.xlsx",
+# 엑셀 위치: 레포 루트 + ./data 둘 다 지원
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+SEARCH_DIRS = [
+    APP_DIR,                        # 레포 루트
+    os.path.join(APP_DIR, "data"),  # data 폴더
 ]
-PITCHER_FILES = [
-    "2025_투수_1~3회.xlsx", "2025_투수_3~4월.xlsx", "2025_투수_4~6회.xlsx",
-    "2025_투수_5월.xlsx", "2025_투수_6월.xlsx", "2025_투수_7월.xlsx",
-    "2025_투수_7회이후.xlsx", "2025_투수_8월.xlsx", "2025_투수_9월이후.xlsx",
-    "2025_투수_주자득점권.xlsx", "2025_투수_주자없음.xlsx", "2025_투수_주자있음.xlsx",
-    "2025_투수_최종성적1.xlsx", "2025_투수_최종성적2.xlsx",
-    "2025_투수_최종성적3.xlsx", "2025_투수_최종성적4.xlsx",
-]
-ALL_FILES = HITTER_FILES + PITCHER_FILES
 
-# 2) 선수명 로딩
-@st.cache_data
-def load_all_player_names(base_dir: str):
+def find_xlsx_files():
+    paths = []
+    for d in SEARCH_DIRS:
+        if os.path.isdir(d):
+            paths += glob(os.path.join(d, "2025_*.xlsx"))
+    # 중복 제거 + 정렬
+    return sorted(list(dict.fromkeys(paths)))
+
+ALL_XLSX = find_xlsx_files()
+
+# ----------------- 선수명 수집 -----------------
+@st.cache_data(show_spinner=False)
+def load_all_player_names(file_paths):
+    """
+    전달받은 xlsx 파일들에서 1열(선수명)만 모아 중복 제거 후 정렬.
+    파일이 많아도 한 번만 읽고 캐시한다.
+    """
     names = set()
-    missing = []
-    for fname in ALL_FILES:
-        path = os.path.join(base_dir, fname)
-        if not os.path.exists(path):
-            missing.append(fname)
+    missing_files = []
+    for p in file_paths:
+        try:
+            df = pd.read_excel(p, engine="openpyxl")
+            if df.shape[1] == 0:
+                continue
+            col0 = df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
+            names.update(col0.tolist())
+        except Exception:
+            # 깨진 파일이 있더라도 전체가 멈추지 않도록
+            missing_files.append(os.path.basename(p))
             continue
-        # engine 명시 (openpyxl)
-        df = pd.read_excel(path, engine="openpyxl")
-        col0 = df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
-        names.update(col0.tolist())
-    return sorted(names), missing
+    return sorted(names), missing_files
 
-ALL_PLAYERS, MISSING = load_all_player_names(BASE_DIR)
+ALL_PLAYERS, BROKEN = load_all_player_names(tuple(ALL_XLSX))  # 캐시 키를 위해 tuple
 
-if MISSING:
-    with st.expander("경고: 누락된 파일 목록", expanded=False):
-        for m in MISSING:
-            st.write("•", m)
-
-# 3) 사이드바 (이전과 동일)
+# ----------------- 사이드바 -----------------
 st.sidebar.title("설정")
+
+# 1) 포지션 (필수 단일 선택)
 position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=0)
 
-detail_options = ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"]
-detail = st.sidebar.radio("세부사항", detail_options, index=0)
+# 2) 세부사항 (기본: 세부사항 없음)
+detail = st.sidebar.radio(
+    "세부사항 (하나만 선택)",
+    ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"],
+    index=0,
+)
 
+# 3) 월/이닝 바(선택 항목에 따라 조건부 표시)
 month_selection = None
 inning_selection = None
+
 if detail == "월별":
     month_selection = st.sidebar.select_slider(
-        "월 선택", options=["3~4월", "5월", "6월", "7월", "8월", "9이후"], value="3~4월"
+        "월 선택",
+        options=["3~4월", "5월", "6월", "7월", "8월", "9이후"],
+        value="3~4월",
     )
 elif detail == "이닝별":
     inning_selection = st.sidebar.select_slider(
-        "이닝 선택", options=["1~3이닝", "4~6이닝", "7이후"], value="1~3이닝"
+        "이닝 선택",
+        options=["1~3이닝", "4~6이닝", "7이후"],
+        value="1~3이닝",
     )
 
-# 4) 메인: 제목 + 검색
-title_text = st.text_input("제목", value="2025")
-st.markdown("---")
+# ----------------- 메인 영역 -----------------
+title_text = st.text_input("제목", value="2025")  # 항상 "2025" 기본값
+player_query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱")
 
-search_query = st.text_input("선수 이름 검색", placeholder="예: 구, 구자, 구자욱")
-
+# 부분 문자열 검색 (한글 포함, 대소문자 구분 없음 원하면 둘 다 lower() 처리)
 matched_players = []
 selected_player = None
-if search_query:
-    matched_players = [name for name in ALL_PLAYERS if search_query in name]
+if player_query:
+    q = player_query.strip()
+    matched_players = [name for name in ALL_PLAYERS if q in name]
     if matched_players:
-        selected_player = st.selectbox("검색 결과", matched_players)
+        selected_player = st.selectbox("검색 결과에서 선수 선택", matched_players)
     else:
         st.info("검색 결과가 없습니다. (파일 내 존재 선수만 검색됩니다)")
 
-# (옵션) 상태 확인
-with st.expander("현재 선택 값 확인용", expanded=False):
-    st.write("포지션:", position)
-    st.write("세부사항:", detail)
-    st.write("월 선택:", month_selection)
-    st.write("이닝 선택:", inning_selection)
-    st.write("검색어:", search_query)
-    st.write("검색 결과 수:", len(matched_players))
-    st.write("선택한 선수:", selected_player)
+st.markdown("---")
+st.subheader("스탯 시각화")
+st.write("여기에 선택한 조건에 맞는 그래프/표를 이후 단계에서 표시할 예정입니다.")
+
+# --- 진단/확인용 (원하면 지워도 됨) ---
+with st.expander("진단 정보(필요 시만 열기)", expanded=False):
+    st.write("발견된 엑셀 파일 수:", len(ALL_XLSX))
+    if not ALL_XLSX:
+        st.warning("엑셀 파일을 찾지 못했습니다. 레포 루트 또는 data/에 '2025_*.xlsx' 형태로 두세요.")
+    else:
+        st.write("샘플 파일 5개:", [os.path.basename(p) for p in ALL_XLSX[:5]])
     st.write("총 선수 수:", len(ALL_PLAYERS))
+    if BROKEN:
+        st.warning("읽기 실패 파일:", BROKEN)
+    st.write(
+        {
+            "포지션": position,
+            "세부사항": detail,
+            "월 선택": month_selection,
+            "이닝 선택": inning_selection,
+            "검색어": player_query,
+            "검색 결과 수": len(matched_players),
+            "선택한 선수": selected_player,
+        }
+    )
