@@ -2,8 +2,9 @@ import os
 from glob import glob
 import streamlit as st
 import pandas as pd
+import altair as alt
 
-# ----------------- 기본 설정 -----------------
+# ============== 기본 설정 ==============
 st.set_page_config(page_title="2025 시즌 스탯 시각화", layout="wide")
 
 # openpyxl 의존성 체크
@@ -11,14 +12,13 @@ try:
     import openpyxl  # noqa: F401
 except Exception as e:
     st.error(
-        "엑셀 파일(xlsx)을 읽으려면 openpyxl이 필요합니다.\n"
-        "requirements.txt에 `openpyxl>=3.1.2` 추가 후 재배포하거나, 로컬이면 `pip install openpyxl`을 실행하세요.\n\n"
+        "엑셀(xlsx) 읽기에 필요한 openpyxl이 없습니다.\n"
+        "requirements.txt에 `openpyxl>=3.1.2`를 추가하거나 로컬은 `pip install openpyxl`을 실행하세요.\n\n"
         f"원본 에러: {e}"
     )
     st.stop()
 
-# ----------------- 파일 정의 -----------------
-# 레포 구조: 루트와 ./data 모두 지원
+# ============== 파일 경로 ==============
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SEARCH_DIRS = [APP_DIR, os.path.join(APP_DIR, "data")]
 
@@ -59,115 +59,243 @@ PITCHER_FILES = [
 ]
 
 def resolve_existing_paths(filenames):
-    """정의된 파일명들을 레포 루트/ data 폴더에서 찾아 실제 경로 리스트로 반환"""
     found = []
     for name in filenames:
-        path = None
-        # 우선순위: 루트 -> data
         for d in SEARCH_DIRS:
-            candidate = os.path.join(d, name)
-            if os.path.exists(candidate):
-                path = candidate
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                found.append(p)
                 break
-        if path:
-            found.append(path)
-    # 중복 제거(같은 파일명이 루트/데이터 양쪽 있을 가능성 대비)
+    # 중복 제거
     return list(dict.fromkeys(found))
 
 HITTER_PATHS = resolve_existing_paths(HITTER_FILES)
 PITCHER_PATHS = resolve_existing_paths(PITCHER_FILES)
 
-# ----------------- 선수명 수집 -----------------
+# ============== 유틸 ==============
+def read_xlsx(path):
+    return pd.read_excel(path, engine="openpyxl")
+
+def first_col_strip(df):
+    """첫 번째 열(선수명)만 공백 strip 후 반환"""
+    return df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
+
+def get_col(df, candidates):
+    """
+    후보 문자열들 중 하나라도 포함하는 컬럼명을 찾아 반환.
+    (예: ['OPS', 'OPS(출+장)'] 등)
+    """
+    cols = list(df.columns)
+    for cand in candidates:
+        for c in cols:
+            if cand in str(c):
+                return c
+    return None
+
+# ============== 선수명 로딩 (포지션별) ==============
 @st.cache_data(show_spinner=False)
 def load_player_names(file_paths):
-    """
-    주어진 파일들에서 1열(선수명)만 모아 중복 제거 후 정렬해 반환.
-    - 공백만 strip. '(좌)', '(우)' 등 표기는 그대로 보존.
-    """
     names = set()
     broken = []
     for p in file_paths:
         try:
-            df = pd.read_excel(p, engine="openpyxl")
-            if df.shape[1] == 0:
-                continue
-            # 첫 번째 열에서 이름만 추출
-            col0 = df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
-            names.update(col0.tolist())
+            df = read_xlsx(p)
+            names.update(first_col_strip(df).tolist())
         except Exception:
             broken.append(os.path.basename(p))
-            continue
     return sorted(names), broken
 
 HITTER_PLAYERS, BROKEN_H = load_player_names(tuple(HITTER_PATHS))
 PITCHER_PLAYERS, BROKEN_P = load_player_names(tuple(PITCHER_PATHS))
 
-# ----------------- 사이드바 -----------------
+# ============== 사이드바 ==============
 st.sidebar.title("설정")
 
-# (1) 포지션
-position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=0)
-
-# (2) 세부사항
+position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=1)  # 타자 기본
 detail = st.sidebar.radio(
     "세부사항 (하나만 선택)",
     ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"],
     index=0,
 )
 
-# (3) 월/이닝 바(조건부 표시)
 month_selection = None
 inning_selection = None
 if detail == "월별":
     month_selection = st.sidebar.select_slider(
-        "월 선택",
-        options=["3~4월", "5월", "6월", "7월", "8월", "9이후"],
-        value="3~4월",
+        "월 선택", options=["3~4월", "5월", "6월", "7월", "8월", "9이후"], value="3~4월"
     )
 elif detail == "이닝별":
     inning_selection = st.sidebar.select_slider(
-        "이닝 선택",
-        options=["1~3이닝", "4~6이닝", "7이후"],
-        value="1~3이닝",
+        "이닝 선택", options=["1~3이닝", "4~6이닝", "7이후"], value="1~3이닝"
     )
 
-# ----------------- 메인 영역 -----------------
-# 제목 고정
+# ============== 메인 타이틀 ==============
 st.title("2025")
 
-# 포지션별 플레이어 목록
+# ============== 검색창 ==============
 ACTIVE_PLAYERS = PITCHER_PLAYERS if position == "투수" else HITTER_PLAYERS
-
-# 선수 검색
 query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱")
-matched_players = []
-selected_player = None
+matched_players, selected_player = [], None
 if query:
     q = query.strip()
-    # 부분 문자열 검색
-    matched_players = [name for name in ACTIVE_PLAYERS if q in name]
+    matched_players = [n for n in ACTIVE_PLAYERS if q in n]
     if matched_players:
         selected_player = st.selectbox("검색 결과에서 선수 선택", matched_players)
-    else:
-        st.info("검색 결과가 없습니다. (선택한 포지션의 파일 내 존재 선수만 검색됩니다)")
 
 st.markdown("---")
 st.subheader("스탯 시각화")
-st.write("여기에 선택한 조건에 맞는 그래프/표를 이후 단계에서 표시할 예정입니다.")
 
-# --- 진단/확인용 (원하면 지워도 됨) ---
-with st.expander("진단 정보(필요 시만 열기)", expanded=False):
-    st.write("포지션:", position)
-    st.write("세부사항:", detail)
-    st.write("월 선택:", month_selection)
-    st.write("이닝 선택:", inning_selection)
-    st.write("타자 파일 수:", len(HITTER_PATHS), "투수 파일 수:", len(PITCHER_PATHS))
-    st.write("타자 선수 수:", len(HITTER_PLAYERS), "투수 선수 수:", len(PITCHER_PLAYERS))
-    if BROKEN_H or BROKEN_P:
-        if BROKEN_H:
-            st.warning(f"읽기 실패(타자): {BROKEN_H}")
-        if BROKEN_P:
-            st.warning(f"읽기 실패(투수): {BROKEN_P}")
-    st.write("검색어:", query)
-    st.write("검색 결과 수:", len(matched_players))
-    st.write("선택한 선수:", selected_player)
+# ============== 타자 · 세부사항 없음: 시각화 ==============
+def visualize_batter_overall(player_name: str):
+    """
+    타자_최종성적1/2 에서 지정한 지표를 읽어
+    - (비율/율/OPS) 묶음: Altair bar + interactive
+    - (카운팅 스탯) 묶음: Altair bar + interactive
+    - 아래 표로 원값 출력
+    """
+    # 파일 경로 해석
+    f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
+    f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
+    if not f1 or not f2:
+        st.error("타자 최종성적 파일(1,2)을 찾을 수 없습니다.")
+        return
+
+    df1 = read_xlsx(f1)
+    df2 = read_xlsx(f2)
+
+    # 선수 행 찾기(첫 열이 선수명)
+    name_col1 = df1.columns[0]
+    name_col2 = df2.columns[0]
+    row1 = df1[first_col_strip(df1) == player_name]
+    row2 = df2[first_col_strip(df2) == player_name]
+
+    if row1.empty and row2.empty:
+        st.info("선택한 선수를 최종성적 파일에서 찾지 못했습니다.")
+        return
+
+    # -------- df1에서 컬럼 찾기 --------
+    c_ab   = get_col(df1, ["타수"])
+    c_r    = get_col(df1, ["득점"])
+    c_h    = get_col(df1, ["안타"])
+    c_hr   = get_col(df1, ["홈런"])
+    c_rbi  = get_col(df1, ["타점"])
+    c_avg  = get_col(df1, ["타율"])
+
+    # -------- df2에서 컬럼 찾기 --------
+    c_bb   = get_col(df2, ["볼넷"])
+    c_ibb  = get_col(df2, ["고의4구", "고의 사구", "고의4"])  # 다양한 표기 대비
+    c_hbp  = get_col(df2, ["몸에맞는볼", "사구"])
+    c_so   = get_col(df2, ["삼진"])
+    c_gidp = get_col(df2, ["병살"])
+    c_slg  = get_col(df2, ["장타율"])
+    c_obp  = get_col(df2, ["출루율"])
+    c_ops  = get_col(df2, ["OPS", "OPS(출+장)"])
+    c_risp = get_col(df2, ["득점권", "득점권 타율"])
+
+    # 값 안전 추출 함수
+    def v(df, col):
+        if col is None or df.empty: 
+            return None
+        try:
+            return float(df.iloc[0][col])
+        except Exception:
+            try:
+                # 문자열에 %가 있으면 제거
+                return float(str(df.iloc[0][col]).replace("%",""))
+            except Exception:
+                return None
+
+    # 수치 뽑기
+    ab   = v(row1, c_ab)
+    r    = v(row1, c_r)
+    h    = v(row1, c_h)
+    hr   = v(row1, c_hr)
+    rbi  = v(row1, c_rbi)
+    avg  = v(row1, c_avg)
+
+    bb   = v(row2, c_bb)  or 0.0
+    ibb  = v(row2, c_ibb) or 0.0
+    hbp  = v(row2, c_hbp) or 0.0
+    so   = v(row2, c_so)
+    gidp = v(row2, c_gidp)
+    slg  = v(row2, c_slg)
+    obp  = v(row2, c_obp)
+    ops  = v(row2, c_ops)
+    risp = v(row2, c_risp)
+
+    # 볼넷 = 볼넷 + 고의4구 + 몸에맞는볼(=사구)
+    bb_sum = (bb or 0) + (ibb or 0) + (hbp or 0)
+
+    # 카운팅 스탯 / 비율 스탯 분리
+    counting_dict = {
+        "타수": ab, "득점": r, "안타": h, "홈런": hr, "타점": rbi,
+        "볼넷": bb_sum, "삼진": so, "병살타": gidp
+    }
+    rate_dict = {
+        "타율": avg, "출루율": obp, "장타율": slg, "OPS(출+장)": ops, "득점권 타율": risp
+    }
+
+    # DataFrame으로 변환
+    counting_df = pd.DataFrame(
+        [{"지표": k, "값": v if v is not None else 0} for k, v in counting_dict.items()]
+    )
+    rate_df = pd.DataFrame(
+        [{"지표": k, "값": v if v is not None else 0} for k, v in rate_dict.items()]
+    )
+
+    # Altair 인터랙티브 바차트(줌/이동 가능)
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown(f"#### {player_name} — 카운팅 스탯")
+        chart1 = (
+            alt.Chart(counting_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("지표:N", sort=None, title=None),
+                y=alt.Y("값:Q", title=None),
+                tooltip=["지표", alt.Tooltip("값:Q", format=",.0f")],
+            )
+            .properties(height=350)
+            .interactive()  # 줌/이동
+        )
+        st.altair_chart(chart1, use_container_width=True)
+
+    with c2:
+        st.markdown(f"#### {player_name} — 비율/율/OPS")
+        # 값 범위가 0~2라는 조건에 맞게 그대로 표시
+        chart2 = (
+            alt.Chart(rate_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("지표:N", sort=None, title=None),
+                y=alt.Y("값:Q", title=None, scale=alt.Scale(domain=[0, 2])),
+                tooltip=["지표", alt.Tooltip("값:Q", format=".3f")],
+            )
+            .properties(height=350)
+            .interactive()
+        )
+        st.altair_chart(chart2, use_container_width=True)
+
+    # 원값 표 (아래 표기)
+    st.markdown("#### 원값 표")
+    show_df = pd.concat(
+        [
+            counting_df.assign(구분="카운팅"),
+            rate_df.assign(구분="비율/OPS"),
+        ],
+        ignore_index=True,
+    )[["구분", "지표", "값"]]
+    # 숫자 포맷(카운팅은 0f, 비율은 3f) 혼합 표시용
+    def fmt(row):
+        return f"{row['값']:.0f}" if row["구분"] == "카운팅" else f"{row['값']:.3f}"
+    show_df["표시값"] = show_df.apply(fmt, axis=1)
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+# 실제 호출
+if position == "타자" and selected_player and detail == "세부사항 없음":
+    visualize_batter_overall(selected_player)
+elif position == "타자" and not selected_player:
+    st.info("타자 데이터를 보려면 상단 검색창에서 선수를 선택하세요.")
+elif position == "투수":
+    st.info("투수쪽 시각화는 다음 단계에서 붙일게!")
