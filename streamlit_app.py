@@ -103,7 +103,7 @@ def parse_number(x):
     """
     문자열 수치 안전 변환:
     - 공백 제거, 콤마 제거
-    - % 포함 시 100으로 나눠 0~1 또는 0~2 스케일 정규화(예: '85%' -> 0.85)
+    - % 포함 시 100으로 나눠 0~1/0~2 스케일 정규화(예: '85%' -> 0.85)
     - 빈칸/하이픈 등은 None
     """
     if x is None:
@@ -216,7 +216,7 @@ def visualize_batter_overall(player_name: str):
     c_gidp = get_col(df2, ["병살", "병살타"])
     c_slg  = get_col(df2, ["장타율"])
     c_obp  = get_col(df2, ["출루율"])
-    c_ops  = get_col(df2, ["ops", "OPS", "OPS(출+장)", "ops(출+장)"])  # <- 대소문자 무시용
+    c_ops  = get_col(df2, ["ops", "OPS", "OPS(출+장)", "ops(출+장)"])
     c_risp = get_col(df2, ["득점권", "득점권 타율", "득점권타율"])
 
     # 값 안전 추출 함수(문자/퍼센트 처리)
@@ -240,7 +240,7 @@ def visualize_batter_overall(player_name: str):
     gidp = v(row2, c_gidp)
     slg  = v(row2, c_slg)
     obp  = v(row2, c_obp)
-    ops  = v(row2, c_ops)   # <- 이제 소문자/퍼센트/문자 모두 안전 처리
+    ops  = v(row2, c_ops)
     risp = v(row2, c_risp)
 
     # 볼넷 = 볼넷 + 고의4구 + 몸에맞는볼(=사구)
@@ -311,9 +311,65 @@ def visualize_batter_overall(player_name: str):
     show_df["표시값"] = show_df.apply(fmt, axis=1)
     st.dataframe(show_df, use_container_width=True, hide_index=True)
 
+def visualize_batter_monthly_avg(player_name: str):
+    """
+    월별 추이(타율) 꺾은선 그래프
+    사용 파일: 타자_3~4월, 5월, 6월, 7월, 8월, 9월이후
+    """
+    # 파일 이름 패턴과 라벨 순서
+    month_defs = [
+        ("타자_3~4월.xlsx", "3~4월"),
+        ("타자_5월.xlsx",   "5월"),
+        ("타자_6월.xlsx",   "6월"),
+        ("타자_7월.xlsx",   "7월"),
+        ("타자_8월.xlsx",   "8월"),
+        ("타자_9월이후.xlsx", "9월이후"),
+    ]
+
+    rows = []
+    for fname, label in month_defs:
+        # 실제 경로 해석
+        p = next((x for x in HITTER_PATHS if x.endswith(fname)), None)
+        if not p or not os.path.exists(p):
+            # 파일이 없으면 건너뜀 (나중에 빈 값으로 노출하지 않음)
+            continue
+
+        df = read_xlsx(p)
+        mask = first_col_strip(df) == player_name
+        if mask.any():
+            # 타율 컬럼 찾기
+            c_avg = get_col(df, ["타율"])
+            val = parse_number(df.loc[mask].iloc[0][c_avg]) if c_avg else None
+            rows.append({"월": label, "타율": val})
+
+    if not rows:
+        st.info("월별 타율 데이터를 찾지 못했습니다.")
+        return
+
+    trend_df = pd.DataFrame(rows)
+    # 지정 순서대로 카테고리 정렬
+    order = [label for _, label in month_defs]
+    trend_df["월"] = pd.Categorical(trend_df["월"], categories=order, ordered=True)
+    trend_df = trend_df.sort_values("월")
+
+    st.markdown("#### 월별 추이 — 타율")
+    line = (
+        alt.Chart(trend_df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("월:N", sort=order, title=None),
+            y=alt.Y("타율:Q", title=None, scale=alt.Scale(domain=[0, 1])),
+            tooltip=[alt.Tooltip("월:N"), alt.Tooltip("타율:Q", format=".3f")],
+        )
+        .properties(height=320)
+        .interactive()
+    )
+    st.altair_chart(line, use_container_width=True)
+
 # 실제 호출
 if position == "타자" and selected_player and detail == "세부사항 없음":
     visualize_batter_overall(selected_player)
+    visualize_batter_monthly_avg(selected_player)  # ← 월별추이(타율) 추가
 elif position == "타자" and not selected_player:
     st.info("타자 데이터를 보려면 상단 검색창에서 선수를 선택하세요.")
 elif position == "투수":
