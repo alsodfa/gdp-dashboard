@@ -86,7 +86,8 @@ def normalize_colname(s: str) -> str:
 def get_col(df, candidates):
     """
     후보 문자열 리스트 중 하나라도 '부분 포함'되면 해당 컬럼명을 반환.
-    - 대소문자 무시, 공백 무시
+    - 대소문자 무시
+    - 컬럼명 앞뒤 공백 무시
     """
     cols = list(df.columns)
     norm_cols = [normalize_colname(c) for c in cols]
@@ -177,7 +178,7 @@ elif detail == "이닝별":
 st.title("2025")
 
 ACTIVE_PLAYERS = PITCHER_PLAYERS if position == "투수" else HITTER_PLAYERS
-query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱 / 투수는 투수만 검색돼요")
+query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱 / 포지션에 맞게 검색됩니다")
 matched_players, selected_player = [], None
 if query:
     q = query.strip()
@@ -188,9 +189,7 @@ if query:
 st.markdown("---")
 st.subheader("스탯 시각화")
 
-# ==================== 타자 시각화 (이전 단계에서 구현한 것들) ====================
-# --- 생략 없이 유지 (필요 부분만 간단하게 남김) ---
-
+# ==================== 타자 (세부사항 없음 + 월별 타율 추이 + 주자/이닝/월별) ====================
 def visualize_batter_overall(player_name: str):
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
@@ -251,6 +250,7 @@ def visualize_batter_overall(player_name: str):
             ).properties(height=350).interactive()
         , use_container_width=True)
 
+    # 가로형 원값 표 (복원!)
     st.markdown("#### 원값 표 (가로형)")
     counting_row = {r["지표"]: int(round(r["값"])) for _,r in counting_df.iterrows()}
     rate_row     = {r["지표"]: round(float(r["값"]),3) for _,r in rate_df.iterrows()}
@@ -292,7 +292,7 @@ def visualize_batter_monthly_avg(player_name: str):
         ).properties(height=320).interactive()
     , use_container_width=True)
 
-# 주자/이닝/월별 (타자) — 생략 (이미 이전 턴에서 구현 완료)
+# 주자/이닝/월별(타자) — 이전 대화에서 만든 함수들 재사용 (필요 시 여기에 그대로 붙일 수 있음)
 
 # ==================== 투수 · 세부사항 없음 ====================
 def visualize_pitcher_overall(player_name: str):
@@ -300,7 +300,7 @@ def visualize_pitcher_overall(player_name: str):
     사용 파일: 투수_최종성적1,2,3,4
     텍스트 표기: 평균자책점, 승리, 패배, 세이브, 홀드, 이닝, (있으면) 퀄리티스타트
     카운팅 막대: 피안타, 피홈런, 볼넷(=볼넷+몸에맞는볼), 삼진
-    비율 막대: 이닝당출루허용률(WHIP), 9이닝당 삼진(K/9), 9이닝당볼넷(BB/9), 삼진/볼넷(K/BB), 피OPS, 피안타율(피타율)
+    비율 막대: WHIP, K/9, BB/9, K/BB, 피OPS, 피안타율
     월별 추이: 3~4월~9월이후 평균자책점(ERA) 꺾은선
     """
     paths = {
@@ -316,12 +316,12 @@ def visualize_pitcher_overall(player_name: str):
     dfs = {k: (read_xlsx(v) if v else None) for k,v in paths.items()}
     masks = {k: (first_col_strip(df)==player_name if df is not None else None) for k,df in dfs.items()}
 
-    # ---- 텍스트 표기 스탯 ----
-    era   = value_from_any(dfs.values(), ["평균자책","평균자책점","ERA"], masks.values())
-    w     = value_from_any(dfs.values(), ["승","승리"], masks.values())
-    l     = value_from_any(dfs.values(), ["패","패배"], masks.values())
-    sv    = value_from_any(dfs.values(), ["세이브","SV"], masks.values())
-    hld   = value_from_any(dfs.values(), ["홀드","HLD","HD"], masks.values())
+    # ---- 텍스트 표기 스탯 ---- (후보 확장)
+    era   = value_from_any(dfs.values(), ["평균자책","평균자책점","era","평자"], masks.values())
+    w     = value_from_any(dfs.values(), ["승","승리","W"], masks.values())
+    l     = value_from_any(dfs.values(), ["패","패배","L"], masks.values())
+    sv    = value_from_any(dfs.values(), ["세이브","SV","Save"], masks.values())
+    hld   = value_from_any(dfs.values(), ["홀드","HLD","HD","Hold"], masks.values())
     ip    = value_from_any(dfs.values(), ["이닝","IP"], masks.values())
     qs    = value_from_any(dfs.values(), ["퀄리티스타트","QS"], masks.values())  # 있을 때만
 
@@ -332,26 +332,24 @@ def visualize_pitcher_overall(player_name: str):
     with top_cols[3]: st.metric("세이브", "N/A" if sv is None else f"{int(round(sv))}")
     with top_cols[4]: st.metric("홀드", "N/A" if hld is None else f"{int(round(hld))}")
     with top_cols[5]: st.metric("이닝", "N/A" if ip  is None else f"{ip:.1f}")
-
     if qs is not None:
         st.metric("퀄리티스타트", f"{int(round(qs))}")
 
     # ---- 카운팅 막대 ----
-    h_allowed = value_from_any(dfs.values(), ["피안타","피 H","H_ALLOWED","H"], masks.values())
-    hr_allowed= value_from_any(dfs.values(), ["피홈런","피 HR","HR_ALLOWED","HR"], masks.values())
-    bb       = value_from_any(dfs.values(), ["볼넷","BB"], masks.values()) or 0
-    hbp      = value_from_any(dfs.values(), ["몸에맞는볼","사구","HBP"], masks.values()) or 0
-    so       = value_from_any(dfs.values(), ["삼진","SO","K"], masks.values())
+    h_allowed = value_from_any(dfs.values(), ["피안타","피 h","h_allowed","피H"], masks.values())
+    hr_allowed= value_from_any(dfs.values(), ["피홈런","피 hr","hr_allowed","피HR"], masks.values())
+    bb       = value_from_any(dfs.values(), ["볼넷","bb","Base on Balls"], masks.values()) or 0
+    hbp      = value_from_any(dfs.values(), ["몸에맞는볼","사구","hbp"], masks.values()) or 0
+    so       = value_from_any(dfs.values(), ["삼진","so","k"], masks.values())
 
     bb_sum = (bb or 0) + (hbp or 0)
 
-    counting_df = pd.DataFrame([{
-        "지표":"피안타","값": h_allowed or 0
-    },{"지표":"피홈런","값": hr_allowed or 0
-    },{"지표":"볼넷","값": bb_sum or 0
-    },{"지표":"삼진","값": so or 0
-    }])
-
+    counting_df = pd.DataFrame([
+        {"지표":"피안타","값": h_allowed or 0},
+        {"지표":"피홈런","값": hr_allowed or 0},
+        {"지표":"볼넷","값": bb_sum or 0},
+        {"지표":"삼진","값": so or 0},
+    ])
     st.markdown("#### 카운팅 스탯 (투수)")
     st.altair_chart(
         alt.Chart(counting_df).mark_bar().encode(
@@ -361,23 +359,22 @@ def visualize_pitcher_overall(player_name: str):
         ).properties(height=340).interactive()
     , use_container_width=True)
 
-    # ---- 비율 막대 ----
-    whip = value_from_any(dfs.values(), ["이닝당출루허용률","WHIP"], masks.values())
-    k9   = value_from_any(dfs.values(), ["9이닝당 삼진","K/9","K9"], masks.values())
-    bb9  = value_from_any(dfs.values(), ["9이닝당볼넷","BB/9","BB9"], masks.values())
-    kbb  = value_from_any(dfs.values(), ["삼진/볼넷","K/BB","KBB"], masks.values())
-    o_ops= value_from_any(dfs.values(), ["피ops","피OPS","OPS"], masks.values())
-    o_avg= value_from_any(dfs.values(), ["피안타율","피타율","OAVG","AVG"], masks.values())
+    # ---- 비율 막대 ---- (후보 확장: K/9, BB/9, K/BB, OPS, AVG 표기 변형)
+    whip = value_from_any(dfs.values(), ["이닝당출루허용률","whip"], masks.values())
+    k9   = value_from_any(dfs.values(), ["9이닝당 삼진","9이닝당삼진","k/9","k9","so/9","삼진/9","탈삼진/9","탈삼진9"], masks.values())
+    bb9  = value_from_any(dfs.values(), ["9이닝당볼넷","9이닝당 볼넷","bb/9","bb9","볼넷/9"], masks.values())
+    kbb  = value_from_any(dfs.values(), ["삼진/볼넷","k/bb","kbb"], masks.values())
+    o_ops= value_from_any(dfs.values(), ["피ops","피 ops","o-ops","ops"], masks.values())
+    o_avg= value_from_any(dfs.values(), ["피안타율","피타율","oavg","avg"], masks.values())
 
-    rate_df = pd.DataFrame([{
-        "지표":"이닝당출루허용률", "값": whip or 0
-    },{"지표":"9이닝당 삼진", "값": k9 or 0
-    },{"지표":"9이닝당 볼넷", "값": bb9 or 0
-    },{"지표":"삼진/볼넷", "값": kbb or 0
-    },{"지표":"피OPS", "값": o_ops or 0
-    },{"지표":"피안타율", "값": o_avg or 0
-    }])
-
+    rate_df = pd.DataFrame([
+        {"지표":"이닝당출루허용률", "값": whip or 0},
+        {"지표":"9이닝당 삼진", "값": k9 or 0},
+        {"지표":"9이닝당 볼넷", "값": bb9 or 0},
+        {"지표":"삼진/볼넷", "값": kbb or 0},
+        {"지표":"피OPS", "값": o_ops or 0},
+        {"지표":"피안타율", "값": o_avg or 0},
+    ])
     st.markdown("#### 비율 지표 (투수)")
     st.altair_chart(
         alt.Chart(rate_df).mark_bar().encode(
@@ -387,7 +384,7 @@ def visualize_pitcher_overall(player_name: str):
         ).properties(height=340).interactive()
     , use_container_width=True)
 
-    # ---- 월별 평균자책점 추이 ----
+    # ---- 월별 평균자책점 추이 ---- (후보 확장 + 견고화)
     month_defs = [
         ("투수_3~4월.xlsx","3~4월"),
         ("투수_5월.xlsx","5월"),
@@ -403,7 +400,7 @@ def visualize_pitcher_overall(player_name: str):
         df = read_xlsx(p)
         m  = first_col_strip(df)==player_name
         if m.any():
-            era_col = get_col(df, ["평균자책","평균자책점","ERA"])
+            era_col = get_col(df, ["평균자책","평균자책점","era","평자"])
             val = parse_number(df.loc[m].iloc[0][era_col]) if era_col else None
             rows.append({"월":label,"ERA":val})
     if rows:
@@ -427,18 +424,12 @@ if position == "타자" and selected_player:
     if detail == "세부사항 없음":
         visualize_batter_overall(selected_player)
         visualize_batter_monthly_avg(selected_player)  # 참고용 꺾은선
-    elif detail in ("주자 있음", "주자 없음"):
-        # 이전 단계에서 구현한 주자 있음/없음/이닝/월별 함수 사용한다고 가정
-        st.info("주자 있음/없음, 이닝/월별(타자)는 직전 버전 코드 그대로 동작합니다.")
-    elif detail == "이닝별":
-        st.info("이닝별(타자) 시각화는 직전 버전 코드에서 동작합니다.")
-    elif detail == "월별":
-        st.info("월별(타자) 시각화는 직전 버전 코드에서 동작합니다.")
-
+    elif detail in ("주자 있음", "주자 없음", "이닝별", "월별"):
+        st.info("타자 주자/이닝/월별 시각화는 직전 버전 코드 그대로 사용 가능합니다.")
 elif position == "투수" and selected_player:
     if detail == "세부사항 없음":
         visualize_pitcher_overall(selected_player)
-    elif detail in ("주자 있음", "주자 없음", "이닝별", "월별"):
-        st.info("투수의 다른 세부조건 시각화는 다음 단계에서 이어서 붙일게요.")
+    else:
+        st.info("투수의 다른 세부조건(주자/이닝/월별)은 다음 단계에서 이어서 붙일게요.")
 elif not selected_player:
     st.info("상단 검색창에 일부 이름을 입력해 선수를 선택해 주세요. (포지션에 따라 검색 대상이 달라집니다.)")
