@@ -1,60 +1,39 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image
+import os
 
-# --- 사이드바 구성 ---
-st.sidebar.title("분석 조건 설정")
+DATA_DIR = "data"
 
-# 투수/타자 선택 (필수)
-position = st.sidebar.radio("필수", ["투수", "타자"], index=0)
+# 포지션 선택 (필수)
+position = st.sidebar.radio("포지션을 선택하세요", ["타자", "투수"])
 
-# 세부사항 단일 선택 (옵션)
-detail_options = ["세부사항없음", "주자 있음", "주자 없음", "이닝별", "월별"]
-detail = st.sidebar.radio("세부사항 (하나만 선택)", detail_options, index=0)
+# 파일 분류
+hitter_files = [f for f in os.listdir(DATA_DIR) if f.startswith("2025_타자") and f.endswith(".xlsx")]
+pitcher_files = [f for f in os.listdir(DATA_DIR) if f.startswith("2025_투수") and f.endswith(".xlsx")]
 
-# 월별 또는 이닝별 선택 시 슬라이더 등장
-month_selection = None
-inning_selection = None
+# 선수 이름 추출 함수 (1열 기준)
+@st.cache_data
+def extract_player_names_from_first_column(file_list):
+    names = set()
+    for file in file_list:
+        df = pd.read_excel(os.path.join(DATA_DIR, file))
+        if not df.empty:
+            first_col = df.columns[0]
+            names.update(df[first_col].dropna().astype(str).unique())
+    return sorted(names)
 
-if detail == "월별":
-    month_selection = st.sidebar.select_slider(
-        "월 선택",
-        options=["3~4월", "5월", "6월", "7월", "8월", "9월이후"],
-        value="3~4월"
-    )
-elif detail == "이닝별":
-    inning_selection = st.sidebar.select_slider(
-        "이닝 선택",
-        options=["1~3이닝", "4~6이닝", "7이닝 이후"],
-        value="1~3이닝"
-    )
+# 포지션별 이름 추출
+if position == "타자":
+    player_list = extract_player_names_from_first_column(hitter_files)
+else:
+    player_list = extract_player_names_from_first_column(pitcher_files)
 
-# --- 메인 화면 ---
-st.title("제목 입력")
-
-# 선수 검색창 (자동완성)
-all_players = ["최원태", "원태인", "정우영", "김현수"]  # 예시 리스트
-selected_player = st.text_input("선수 이름 검색", "")
-
-# 필터된 선수 리스트 보여주기
-if selected_player:
-    filtered_players = [p for p in all_players if selected_player in p]
-    if filtered_players:
-        selected_player = st.selectbox("선수 선택", filtered_players)
+# 검색창 + 필터
+search_input = st.text_input("선수 이름을 입력하세요")
+if search_input:
+    filtered_names = [name for name in player_list if search_input in name]
+    if filtered_names:
+        selected_player = st.selectbox("선수 선택", filtered_names)
+        st.success(f"선택된 선수: {selected_player}")
     else:
         st.warning("해당 이름을 포함하는 선수가 없습니다.")
-
-# 선수 사진 띄우기 (예시)
-if selected_player:
-    image = Image.open("/mnt/data/39ebc047-b5d6-4b73-8e9a-ec52d898639e.png")  # 사용자 업로드 사진 사용
-    st.image(image, caption=f"{selected_player} 선수", width=200)
-
-# --- 시각화 영역 (임시) ---
-st.subheader("스탯 시각화")
-st.info("선수와 조건을 선택하면 여기에 그래프가 나타납니다.")
-
-# TODO: 선택한 조건(position, detail, 월/이닝 범위 등)에 따라 데이터 필터링 및 시각화
-# 예: df[(df["선수"] == selected_player) & (df["이닝"] >= inning_range[0])] 등
-
-# Streamlit 실행 예시:
-# streamlit run streamlit_baseball_dashboard.py
