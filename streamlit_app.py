@@ -1,6 +1,29 @@
 import os
 import streamlit as st
 import pandas as pd
+with st.expander("엑셀/의존성 진단", expanded=False):
+    try:
+        import openpyxl  # noqa: F401
+        st.success("openpyxl 설치 OK")
+    except Exception as e:
+        st.error(f"openpyxl 미설치/에러: {e}")
+
+    import os
+    from glob import glob
+    files = sorted(glob(os.path.join(BASE_DIR, "*.xlsx")))
+    st.write("발견된 엑셀 파일 수:", len(files))
+    for f in files[:10]:
+        st.write("•", f)
+
+    try:
+        # 존재하는 파일 하나를 골라 1열만 미리보기
+        if files:
+            import pandas as pd
+            df_head = pd.read_excel(files[0], engine="openpyxl").iloc[:, :1].head()
+            st.write("샘플 미리보기(첫 번째 파일 1열):")
+            st.dataframe(df_head)
+    except Exception as e:
+        st.error(f"읽기 테스트 실패: {e}")
 
 st.set_page_config(page_title="2025 시즌 스탯 시각화", layout="wide")
 
