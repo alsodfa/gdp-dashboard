@@ -80,17 +80,46 @@ def first_col_strip(df):
     """첫 번째 열(선수명)만 공백 strip 후 반환"""
     return df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
 
+def normalize_colname(s: str) -> str:
+    """컬럼명 비교용 정규화(소문자, 양쪽 공백 제거)"""
+    return str(s).strip().lower()
+
 def get_col(df, candidates):
     """
-    후보 문자열들 중 하나라도 포함하는 컬럼명을 찾아 반환.
-    (예: ['OPS', 'OPS(출+장)'] 등)
+    후보 문자열 리스트 중 하나라도 '부분 포함'되면 해당 컬럼명을 반환.
+    - 대소문자 무시
+    - 컬럼명 앞뒤 공백 무시
     """
     cols = list(df.columns)
+    norm_cols = [normalize_colname(c) for c in cols]
     for cand in candidates:
-        for c in cols:
-            if cand in str(c):
-                return c
+        target = normalize_colname(cand)
+        for orig, norm in zip(cols, norm_cols):
+            if target in norm:
+                return orig
     return None
+
+def parse_number(x):
+    """
+    문자열 수치 안전 변환:
+    - 공백 제거, 콤마 제거
+    - % 포함 시 100으로 나눠 0~1 또는 0~2 스케일 정규화(예: '85%' -> 0.85)
+    - 빈칸/하이픈 등은 None
+    """
+    if x is None:
+        return None
+    s = str(x).strip()
+    if s == "" or s in {"-", "—", "NaN", "nan"}:
+        return None
+    is_percent = "%" in s
+    s = s.replace(",", "").replace("%", "")
+    try:
+        val = float(s)
+        if is_percent:
+            val = val / 100.0
+        return val
+    except Exception:
+        return None
 
 # ============== 선수명 로딩 (포지션별) ==============
 @st.cache_data(show_spinner=False)
@@ -129,10 +158,9 @@ elif detail == "이닝별":
         "이닝 선택", options=["1~3이닝", "4~6이닝", "7이후"], value="1~3이닝"
     )
 
-# ============== 메인 타이틀 ==============
+# ============== 메인 타이틀 / 검색 ==============
 st.title("2025")
 
-# ============== 검색창 ==============
 ACTIVE_PLAYERS = PITCHER_PLAYERS if position == "투수" else HITTER_PLAYERS
 query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱")
 matched_players, selected_player = [], None
@@ -148,12 +176,11 @@ st.subheader("스탯 시각화")
 # ============== 타자 · 세부사항 없음: 시각화 ==============
 def visualize_batter_overall(player_name: str):
     """
-    타자_최종성적1/2 에서 지정한 지표를 읽어
+    타자_최종성적1/2 에서 지정 지표를 읽어
     - (비율/율/OPS) 묶음: Altair bar + interactive
     - (카운팅 스탯) 묶음: Altair bar + interactive
     - 아래 표로 원값 출력
     """
-    # 파일 경로 해석
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
     f2 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적2.xlsx")), None)
     if not f1 or not f2:
@@ -164,10 +191,10 @@ def visualize_batter_overall(player_name: str):
     df2 = read_xlsx(f2)
 
     # 선수 행 찾기(첫 열이 선수명)
-    name_col1 = df1.columns[0]
-    name_col2 = df2.columns[0]
-    row1 = df1[first_col_strip(df1) == player_name]
-    row2 = df2[first_col_strip(df2) == player_name]
+    mask1 = first_col_strip(df1) == player_name
+    mask2 = first_col_strip(df2) == player_name
+    row1 = df1[mask1]
+    row2 = df2[mask2]
 
     if row1.empty and row2.empty:
         st.info("선택한 선수를 최종성적 파일에서 찾지 못했습니다.")
@@ -183,27 +210,20 @@ def visualize_batter_overall(player_name: str):
 
     # -------- df2에서 컬럼 찾기 --------
     c_bb   = get_col(df2, ["볼넷"])
-    c_ibb  = get_col(df2, ["고의4구", "고의 사구", "고의4"])  # 다양한 표기 대비
+    c_ibb  = get_col(df2, ["고의4구", "고의 사구", "고의4"])
     c_hbp  = get_col(df2, ["몸에맞는볼", "사구"])
     c_so   = get_col(df2, ["삼진"])
-    c_gidp = get_col(df2, ["병살"])
+    c_gidp = get_col(df2, ["병살", "병살타"])
     c_slg  = get_col(df2, ["장타율"])
     c_obp  = get_col(df2, ["출루율"])
-    c_ops  = get_col(df2, ["OPS", "OPS(출+장)"])
-    c_risp = get_col(df2, ["득점권", "득점권 타율"])
+    c_ops  = get_col(df2, ["ops", "OPS", "OPS(출+장)", "ops(출+장)"])  # <- 대소문자 무시용
+    c_risp = get_col(df2, ["득점권", "득점권 타율", "득점권타율"])
 
-    # 값 안전 추출 함수
+    # 값 안전 추출 함수(문자/퍼센트 처리)
     def v(df, col):
-        if col is None or df.empty: 
+        if col is None or df.empty:
             return None
-        try:
-            return float(df.iloc[0][col])
-        except Exception:
-            try:
-                # 문자열에 %가 있으면 제거
-                return float(str(df.iloc[0][col]).replace("%",""))
-            except Exception:
-                return None
+        return parse_number(df.iloc[0][col])
 
     # 수치 뽑기
     ab   = v(row1, c_ab)
@@ -220,7 +240,7 @@ def visualize_batter_overall(player_name: str):
     gidp = v(row2, c_gidp)
     slg  = v(row2, c_slg)
     obp  = v(row2, c_obp)
-    ops  = v(row2, c_ops)
+    ops  = v(row2, c_ops)   # <- 이제 소문자/퍼센트/문자 모두 안전 처리
     risp = v(row2, c_risp)
 
     # 볼넷 = 볼넷 + 고의4구 + 몸에맞는볼(=사구)
@@ -257,13 +277,12 @@ def visualize_batter_overall(player_name: str):
                 tooltip=["지표", alt.Tooltip("값:Q", format=",.0f")],
             )
             .properties(height=350)
-            .interactive()  # 줌/이동
+            .interactive()
         )
         st.altair_chart(chart1, use_container_width=True)
 
     with c2:
         st.markdown(f"#### {player_name} — 비율/율/OPS")
-        # 값 범위가 0~2라는 조건에 맞게 그대로 표시
         chart2 = (
             alt.Chart(rate_df)
             .mark_bar()
@@ -277,7 +296,7 @@ def visualize_batter_overall(player_name: str):
         )
         st.altair_chart(chart2, use_container_width=True)
 
-    # 원값 표 (아래 표기)
+    # 원값 표
     st.markdown("#### 원값 표")
     show_df = pd.concat(
         [
@@ -286,7 +305,7 @@ def visualize_batter_overall(player_name: str):
         ],
         ignore_index=True,
     )[["구분", "지표", "값"]]
-    # 숫자 포맷(카운팅은 0f, 비율은 3f) 혼합 표시용
+
     def fmt(row):
         return f"{row['값']:.0f}" if row["구분"] == "카운팅" else f"{row['값']:.3f}"
     show_df["표시값"] = show_df.apply(fmt, axis=1)
