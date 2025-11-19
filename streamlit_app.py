@@ -132,6 +132,28 @@ def value_from_any(dfs, candidates, row_masks):
                 continue
     return None
 
+# ============== 공통: 차트 / 표 유틸 ==============
+def bar_with_labels(data, x_field, y_field, y_fmt, height=350):
+    base = alt.Chart(data).encode(
+        x=alt.X(f"{x_field}:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
+        y=alt.Y(f"{y_field}:Q", title=None),
+        tooltip=[x_field, alt.Tooltip(f"{y_field}:Q", format=y_fmt)],
+    )
+    bars = base.mark_bar()
+    labels = base.mark_text(dy=-5).encode(text=alt.Text(f"{y_field}:Q", format=y_fmt))
+    return (bars + labels).properties(height=height).interactive()
+
+def horizontal_row_from_df(df: pd.DataFrame, k_col="지표", v_col="값", is_rate=False):
+    """한 줄 가로 테이블 생성(카운팅: 정수, 비율: 소수3)"""
+    row = {}
+    for _, r in df.iterrows():
+        if is_rate:
+            val = 0.000 if pd.isna(r[v_col]) else round(float(r[v_col]), 3)
+        else:
+            val = 0 if pd.isna(r[v_col]) else int(round(r[v_col]))
+        row[str(r[k_col])] = val
+    return pd.DataFrame([row])
+
 # ============== 선수명 로딩 ==============
 @st.cache_data(show_spinner=False)
 def load_player_names(file_paths):
@@ -184,17 +206,6 @@ if query:
 st.markdown("---")
 st.subheader("스탯 시각화")
 
-# 공통: 막대 + 라벨 레이어
-def bar_with_labels(data, x_field, y_field, y_fmt, height=350):
-    base = alt.Chart(data).encode(
-        x=alt.X(f"{x_field}:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
-        y=alt.Y(f"{y_field}:Q", title=None),
-        tooltip=[x_field, alt.Tooltip(f"{y_field}:Q", format=y_fmt)],
-    )
-    bars = base.mark_bar()
-    labels = base.mark_text(dy=-5).encode(text=alt.Text(f"{y_field}:Q", format=y_fmt))
-    return (bars + labels).properties(height=height).interactive()
-
 # ==================== 타자 (세부사항 없음 + 월별 타율 추이) ====================
 def visualize_batter_overall(player_name: str):
     f1 = next((p for p in HITTER_PATHS if p.endswith("타자_최종성적1.xlsx")), None)
@@ -240,25 +251,17 @@ def visualize_batter_overall(player_name: str):
     with c1:
         st.markdown(f"#### {player_name} — 카운팅 스탯")
         st.altair_chart(bar_with_labels(counting_df, "지표", "값", ",.0f", height=350), use_container_width=True)
+        st.caption("카운팅 스탯 (가로형)")
+        st.dataframe(horizontal_row_from_df(counting_df, is_rate=False), use_container_width=True, hide_index=True)
+
     with c2:
         st.markdown(f"#### {player_name} — 비율/율/OPS")
-        st.altair_chart(
-            bar_with_labels(rate_df, "지표", "값", ".3f", height=350)
-            .encode(y=alt.Y("값:Q", title=None, scale=alt.Scale(domain=[0,2]))),
-            use_container_width=True
+        chart = bar_with_labels(rate_df, "지표", "값", ".3f", height=350).encode(
+            y=alt.Y("값:Q", title=None, scale=alt.Scale(domain=[0,2]))
         )
-
-    # 가로형 원값 표
-    st.markdown("#### 원값 표 (가로형)")
-    counting_row = {r["지표"]: int(round(r["값"])) for _,r in counting_df.iterrows()}
-    rate_row     = {r["지표"]: round(float(r["값"]),3) for _,r in rate_df.iterrows()}
-    cta,rta=st.columns(2)
-    with cta:
-        st.caption("카운팅 스탯 (가로형)")
-        st.dataframe(pd.DataFrame([counting_row]), use_container_width=True, hide_index=True)
-    with rta:
+        st.altair_chart(chart, use_container_width=True)
         st.caption("비율/OPS (가로형)")
-        st.dataframe(pd.DataFrame([rate_row]), use_container_width=True, hide_index=True)
+        st.dataframe(horizontal_row_from_df(rate_df, is_rate=True), use_container_width=True, hide_index=True)
 
 def visualize_batter_monthly_avg(player_name: str):
     month_defs = [
@@ -289,13 +292,14 @@ def visualize_batter_monthly_avg(player_name: str):
             tooltip=[alt.Tooltip("월:N"), alt.Tooltip("타율:Q", format=".3f")]
         ).properties(height=320).interactive()
     , use_container_width=True)
+    # 이미 이 섹션은 꺾은선 아래에 가로형 표가 있음(이전 버전 유지)
 
 # ==================== 투수 · 세부사항 없음 ====================
 def visualize_pitcher_overall(player_name: str):
     """
     텍스트: ERA, 승/패/세/홀, 이닝(+QS)
-    카운팅 막대: 피안타, 피홈런, 볼넷(=볼넷+몸맞), 삼진  → 라벨 표시
-    비율 막대: WHIP, K/9, BB/9, K/BB, 피OPS, 피안타율 → 라벨 표시
+    카운팅 막대: 피안타, 피홈런, 볼넷(=볼넷+몸맞), 삼진  → 라벨 + 가로형 표
+    비율 막대: WHIP, K/9, BB/9, K/BB, 피OPS, 피안타율 → 라벨 + 가로형 표
     월별: 피안타율 꺾은선 + 가로형 표
     """
     paths = {
@@ -330,7 +334,7 @@ def visualize_pitcher_overall(player_name: str):
     if qs is not None:
         st.metric("퀄리티스타트", f"{int(round(qs))}")
 
-    # 카운팅 막대 + 라벨
+    # 카운팅 막대 + 라벨 + 가로형 표
     h_allowed = value_from_any(dfs.values(), ["피안타","피 h","h_allowed","피H"], masks.values())
     hr_allowed= value_from_any(dfs.values(), ["피홈런","피 hr","hr_allowed","피HR"], masks.values())
     bb       = value_from_any(dfs.values(), ["볼넷","bb","Base on Balls"], masks.values()) or 0
@@ -347,8 +351,10 @@ def visualize_pitcher_overall(player_name: str):
     ])
     st.markdown("#### 카운팅 스탯 (투수)")
     st.altair_chart(bar_with_labels(counting_df, "지표", "값", ",.0f", height=340), use_container_width=True)
+    st.caption("카운팅 스탯 (가로형)")
+    st.dataframe(horizontal_row_from_df(counting_df, is_rate=False), use_container_width=True, hide_index=True)
 
-    # 비율 막대 + 라벨
+    # 비율 막대 + 라벨 + 가로형 표
     whip = value_from_any(dfs.values(), ["이닝당출루허용률","whip"], masks.values())
     k9   = value_from_any(dfs.values(), ["9이닝당 삼진","9이닝당삼진","k/9","k9","so/9","삼진/9","탈삼진/9","탈삼진9"], masks.values())
     bb9  = value_from_any(dfs.values(), ["9이닝당볼넷","9이닝당 볼넷","bb/9","bb9","볼넷/9"], masks.values())
@@ -365,8 +371,9 @@ def visualize_pitcher_overall(player_name: str):
         {"지표":"피안타율", "값": o_avg or 0},
     ])
     st.markdown("#### 비율 지표 (투수)")
-    rate_chart = bar_with_labels(rate_df, "지표", "값", ".3f", height=340)
-    st.altair_chart(rate_chart, use_container_width=True)
+    st.altair_chart(bar_with_labels(rate_df, "지표", "값", ".3f", height=340), use_container_width=True)
+    st.caption("비율 지표 (가로형)")
+    st.dataframe(horizontal_row_from_df(rate_df, is_rate=True), use_container_width=True, hide_index=True)
 
     # 월별 피안타율 꺾은선 + 가로형 표
     month_defs = [
