@@ -192,7 +192,7 @@ elif detail == "이닝별":
     )
 
 # ============== 메인 타이틀 / 검색 ==============
-st.title("2025")
+st.title("2025 삼성라이온즈 기록 정리")
 
 ACTIVE_PLAYERS = PITCHER_PLAYERS if position == "투수" else HITTER_PLAYERS
 query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱 / 포지션에 맞게 검색됩니다")
