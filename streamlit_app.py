@@ -263,7 +263,7 @@ def visualize_batter_overall(player_name: str):
         [{"지표": k, "값": v if v is not None else 0} for k, v in rate_dict.items()]
     )
 
-    # Altair 인터랙티브 바차트(줌/이동 가능)
+    # Altair 인터랙티브 바차트(줌/이동 가능) + x축 라벨 가로 고정
     c1, c2 = st.columns(2)
 
     with c1:
@@ -272,7 +272,7 @@ def visualize_batter_overall(player_name: str):
             alt.Chart(counting_df)
             .mark_bar()
             .encode(
-                x=alt.X("지표:N", sort=None, title=None),
+                x=alt.X("지표:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
                 y=alt.Y("값:Q", title=None),
                 tooltip=["지표", alt.Tooltip("값:Q", format=",.0f")],
             )
@@ -287,7 +287,7 @@ def visualize_batter_overall(player_name: str):
             alt.Chart(rate_df)
             .mark_bar()
             .encode(
-                x=alt.X("지표:N", sort=None, title=None),
+                x=alt.X("지표:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
                 y=alt.Y("값:Q", title=None, scale=alt.Scale(domain=[0, 2])),
                 tooltip=["지표", alt.Tooltip("값:Q", format=".3f")],
             )
@@ -296,7 +296,7 @@ def visualize_batter_overall(player_name: str):
         )
         st.altair_chart(chart2, use_container_width=True)
 
-    # ---------- 기존 "원값 표" 부분을 아래 코드로 교체 ----------
+    # ---------- 원값 표 (가로형) ----------
     st.markdown("#### 원값 표 (가로형)")
 
     # 가로(열)로 한 줄에 펼치기: 카운팅과 비율/OPS를 분리해서 2개 테이블로 표시
@@ -355,7 +355,7 @@ def visualize_batter_monthly_avg(player_name: str):
         alt.Chart(trend_df)
         .mark_line(point=True)
         .encode(
-            x=alt.X("월:N", sort=order, title=None),
+            x=alt.X("월:N", sort=order, title=None, axis=alt.Axis(labelAngle=0)),  # 라벨 가로
             y=alt.Y("타율:Q", title=None, scale=alt.Scale(domain=[0, 1])),
             tooltip=[alt.Tooltip("월:N"), alt.Tooltip("타율:Q", format=".3f")],
         )
