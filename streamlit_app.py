@@ -297,14 +297,24 @@ def visualize_batter_overall(player_name: str):
         st.altair_chart(chart2, use_container_width=True)
 
     # 원값 표
-    st.markdown("#### 원값 표")
-    show_df = pd.concat(
-        [
-            counting_df.assign(구분="카운팅"),
-            rate_df.assign(구분="비율/OPS"),
-        ],
-        ignore_index=True,
-    )[["구분", "지표", "값"]]
+    # ---------- 기존 "원값 표" 부분을 아래 코드로 교체 ----------
+    st.markdown("#### 원값 표 (가로형)")
+
+    # 가로(열)로 한 줄에 펼치기: 카운팅과 비율/OPS를 분리해서 2개 테이블로 표시
+    # 표시 포맷: 카운팅은 정수, 비율/OPS는 소수 3자리
+    counting_row = {k: (0 if (v is None) else int(round(v))) for k, v in counting_dict.items()}
+    rate_row     = {k: (0.000 if (v is None) else round(float(v), 3)) for k, v in rate_dict.items()}
+
+    counting_table = pd.DataFrame([counting_row])
+    rate_table     = pd.DataFrame([rate_row])
+
+    cta, rta = st.columns(2)
+    with cta:
+        st.caption("카운팅 스탯 (가로형)")
+        st.dataframe(counting_table, use_container_width=True, hide_index=True)
+    with rta:
+        st.caption("비율/OPS (가로형)")
+        st.dataframe(rate_table, use_container_width=True, hide_index=True)
 
     def fmt(row):
         return f"{row['값']:.0f}" if row["구분"] == "카운팅" else f"{row['값']:.3f}"
