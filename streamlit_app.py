@@ -8,16 +8,18 @@ DATA_DIR = "data"  # 로컬에서 실행 시 폴더명 주의
 
 # 선수 이름 추출 함수 (항상 첫 번째 열)
 @st.cache_data
-def extract_unique_players(file_list):
-    player_names = set()
+def extract_names_from_first_column(file_list):
+    names = set()
     for file in file_list:
-        df = pd.read_excel(os.path.join(DATA_DIR, file))
-        # '이름' 혹은 '선수' 포함 컬럼 탐색
-        name_cols = [col for col in df.columns if "이름" in col or "선수명" in col]
-        if name_cols:
-            col = name_cols[0]
-            player_names.update(df[col].dropna().astype(str).unique())
-    return sorted(player_names)
+        try:
+            df = pd.read_excel(os.path.join(DATA_DIR, file), engine='openpyxl')
+            if not df.empty:
+                first_col = df.columns[0]
+                names.update(df[first_col].dropna().astype(str).unique())
+        except Exception as e:
+            print(f"{file} 읽기 실패: {e}")
+    return sorted(names)
+
 # --- 사이드바 구성 ---
 st.sidebar.title("분석 조건 설정")
 
