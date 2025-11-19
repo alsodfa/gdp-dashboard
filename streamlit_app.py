@@ -13,7 +13,7 @@ except FileNotFoundError:
     st.error(f"'{DATA_DIR}' 폴더를 찾을 수 없습니다. 폴더와 파일 경로를 확인해 주세요.")
     all_files = []
 
-# ⭐ CSV 파일을 찾도록 확장자 변경
+# CSV 파일을 찾도록 확장자 설정
 hitter_files = [f for f in all_files if f.startswith("2025_타자") and f.endswith(".csv")]
 pitcher_files = [f for f in all_files if f.startswith("2025_투수") and f.endswith(".csv")]
 
@@ -26,25 +26,21 @@ def extract_names_from_first_column(file_list):
     
     for file in file_list:
         try:
-            # ⭐⭐⭐ 핵심 수정: pd.read_csv 사용 ⭐⭐⭐
-            # 첫 번째 열이 이름이 없으므로, sep=','와 encoding='euc-kr' (한글)을 사용
+            # pd.read_csv 사용 및 인코딩 처리
             df = pd.read_csv(os.path.join(DATA_DIR, file), encoding='euc-kr') 
             
             if not df.empty:
-                # ⭐⭐⭐ 인덱스 0의 컬럼을 무조건 선수명으로 간주 ⭐⭐⭐
                 target_col = df.columns[0]
                 
-                # 첫 번째 파일의 실제 로드된 열 이름을 기록합니다. (디버그용)
                 if first_file_col_name is None:
                     first_file_col_name = target_col
                     
-                # 선수 이름 문자열에서 공백 제거 (.str.strip())
                 player_names_series = df[target_col].dropna().astype(str).str.strip()
                 names.update(player_names_series.unique())
             
         except UnicodeDecodeError:
-            # 인코딩 오류 발생 시 utf-8로 재시도
             try:
+                # UTF-8로 재시도
                 df = pd.read_csv(os.path.join(DATA_DIR, file), encoding='utf-8')
                 if not df.empty:
                     target_col = df.columns[0]
@@ -67,12 +63,11 @@ def load_all_player_lists():
     hitter_names, hitter_col_name = extract_names_from_first_column(hitter_files)
     pitcher_names, pitcher_col_name = extract_names_from_first_column(pitcher_files)
     
-    return hitter_names, all_pitcher_names, hitter_col_name, pitcher_col_name
+    # ⭐⭐⭐ 수정된 부분: all_pitcher_names 대신 pitcher_names 사용 ⭐⭐⭐
+    return hitter_names, pitcher_names, hitter_col_name, pitcher_col_name
 
 # 포지션별 전체 선수 목록 로드
 all_hitter_names, all_pitcher_names, hitter_col_name, pitcher_col_name = load_all_player_lists()
-
-# --- (이후 사이드바 및 메인 화면 코드는 이전과 동일) ---
 
 # --- 사이드바 구성 ---
 st.sidebar.title("분석 조건 설정")
@@ -123,7 +118,7 @@ st.subheader("🛠️ 디버그 정보 (검색 문제 확인용)")
 st.info(f"선택된 **{position}** 포지션의 파일에서\n첫 번째 열 이름으로 로드된 값: **'{current_col_name}'**\n\n- 이 값이 **'선수명'**이나 **`''`** (빈 문자열)이 될 수 있습니다.\n- 코드는 이 값을 무시하고 **첫 번째 열 (인덱스 0)**에서 선수를 추출했습니다.")
 st.markdown("---")
 
-# --- (이후 이미지 출력 및 시각화 영역은 생략) ---
+# --- 이미지 출력 및 시각화 영역 ---
 if selected_player:
     try:
         image_path = "data/선수사진_예시.png" 
