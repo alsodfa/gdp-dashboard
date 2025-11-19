@@ -6,7 +6,7 @@ import pandas as pd
 # ----------------- 기본 설정 -----------------
 st.set_page_config(page_title="2025 시즌 스탯 시각화", layout="wide")
 
-# openpyxl 의존성 체크 (없으면 친절히 멈춤)
+# openpyxl 의존성 체크
 try:
     import openpyxl  # noqa: F401
 except Exception as e:
@@ -38,11 +38,10 @@ ALL_XLSX = find_xlsx_files()
 @st.cache_data(show_spinner=False)
 def load_all_player_names(file_paths):
     """
-    전달받은 xlsx 파일들에서 1열(선수명)만 모아 중복 제거 후 정렬.
-    파일이 많아도 한 번만 읽고 캐시한다.
+    xlsx들에서 1열(선수명)만 모아 중복 제거 후 정렬.
     """
     names = set()
-    missing_files = []
+    broken = []
     for p in file_paths:
         try:
             df = pd.read_excel(p, engine="openpyxl")
@@ -51,30 +50,28 @@ def load_all_player_names(file_paths):
             col0 = df.iloc[:, 0].dropna().astype(str).map(lambda x: x.strip())
             names.update(col0.tolist())
         except Exception:
-            # 깨진 파일이 있더라도 전체가 멈추지 않도록
-            missing_files.append(os.path.basename(p))
+            broken.append(os.path.basename(p))
             continue
-    return sorted(names), missing_files
+    return sorted(names), broken
 
-ALL_PLAYERS, BROKEN = load_all_player_names(tuple(ALL_XLSX))  # 캐시 키를 위해 tuple
+ALL_PLAYERS, BROKEN = load_all_player_names(tuple(ALL_XLSX))  # 캐시 키로 tuple 사용
 
 # ----------------- 사이드바 -----------------
 st.sidebar.title("설정")
 
-# 1) 포지션 (필수 단일 선택)
+# (1) 포지션
 position = st.sidebar.radio("선수 포지션", ["투수", "타자"], index=0)
 
-# 2) 세부사항 (기본: 세부사항 없음)
+# (2) 세부사항
 detail = st.sidebar.radio(
     "세부사항 (하나만 선택)",
     ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"],
     index=0,
 )
 
-# 3) 월/이닝 바(선택 항목에 따라 조건부 표시)
+# (3) 월/이닝 바(조건부 표시)
 month_selection = None
 inning_selection = None
-
 if detail == "월별":
     month_selection = st.sidebar.select_slider(
         "월 선택",
@@ -89,10 +86,12 @@ elif detail == "이닝별":
     )
 
 # ----------------- 메인 영역 -----------------
-title_text = st.text_input("제목", value="2025")  # 항상 "2025" 기본값
+# 제목을 고정으로 표시
+st.title("2025 삼성라이온즈 결산")
+
+# 선수 검색
 player_query = st.text_input("선수 이름 검색창", placeholder="예: 구, 구자, 구자욱")
 
-# 부분 문자열 검색 (한글 포함, 대소문자 구분 없음 원하면 둘 다 lower() 처리)
 matched_players = []
 selected_player = None
 if player_query:
