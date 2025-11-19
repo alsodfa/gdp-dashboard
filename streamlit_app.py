@@ -1,140 +1,145 @@
+import os
 import streamlit as st
 import pandas as pd
-import os
-from PIL import Image
 
-# 데이터 디렉토리 설정
-DATA_DIR = "data" 
+# ----------------- 설정 -----------------
+st.set_page_config(
+    page_title="2025 시즌 스탯 시각화",
+    layout="wide",
+)
 
-# --- 파일 리스트 생성 ---
-try:
-    all_files = os.listdir(DATA_DIR)
-except FileNotFoundError:
-    st.error(f"'{DATA_DIR}' 폴더를 찾을 수 없습니다. 폴더와 파일 경로를 확인해 주세요.")
-    all_files = []
+BASE_DIR = "data"  # 엑셀 파일들이 들어있는 폴더 이름
 
-# CSV 파일을 찾도록 확장자 설정
-hitter_files = [f for f in all_files if f.startswith("2025_타자") and f.endswith(".csv")]
-pitcher_files = [f for f in all_files if f.startswith("2025_투수") and f.endswith(".csv")]
+# 저장해 둔 30개 파일 이름들
+HITTER_FILES = [
+    "2025_타자_1~3회.xlsx",
+    "2025_타자_3~4월.xlsx",
+    "2025_타자_4~6회.xlsx",
+    "2025_타자_5월.xlsx",
+    "2025_타자_6월.xlsx",
+    "2025_타자_7월.xlsx",
+    "2025_타자_7회이후.xlsx",
+    "2025_타자_8월.xlsx",
+    "2025_타자_9월이후.xlsx",
+    "2025_타자_주자득점권.xlsx",
+    "2025_타자_주자없음.xlsx",
+    "2025_타자_주자있음.xlsx",
+    "2025_타자_최종성적1.xlsx",
+    "2025_타자_최종성적2.xlsx",
+]
+
+PITCHER_FILES = [
+    "2025_투수_1~3회.xlsx",
+    "2025_투수_3~4월.xlsx",
+    "2025_투수_4~6회.xlsx",
+    "2025_투수_5월.xlsx",
+    "2025_투수_6월.xlsx",
+    "2025_투수_7월.xlsx",
+    "2025_투수_7회이후.xlsx",
+    "2025_투수_8월.xlsx",
+    "2025_투수_9월이후.xlsx",
+    "2025_투수_주자득점권.xlsx",
+    "2025_투수_주자없음.xlsx",
+    "2025_투수_주자있음.xlsx",
+    "2025_투수_최종성적1.xlsx",
+    "2025_투수_최종성적2.xlsx",
+    "2025_투수_최종성적3.xlsx",
+    "2025_투수_최종성적4.xlsx",
+]
+
+ALL_FILES = HITTER_FILES + PITCHER_FILES
 
 
-# --- 선수 이름 추출 함수: CSV 로드 및 첫 번째 열 (인덱스 0) 강제 참조 ---
+# ----------------- 선수 이름 불러오기 -----------------
 @st.cache_data
-def extract_names_from_first_column(file_list):
+def load_all_player_names(base_dir: str):
+    """
+    모든 엑셀 파일에서 첫 번째 열(선수명)만 모아서
+    중복 제거 후 정렬해서 리스트로 반환
+    """
     names = set()
-    first_file_col_name = None 
-    
-    for file in file_list:
-        try:
-            # pd.read_csv 사용 및 인코딩 처리
-            df = pd.read_csv(os.path.join(DATA_DIR, file), encoding='euc-kr') 
-            
-            if not df.empty:
-                target_col = df.columns[0]
-                
-                if first_file_col_name is None:
-                    first_file_col_name = target_col
-                    
-                player_names_series = df[target_col].dropna().astype(str).str.strip()
-                names.update(player_names_series.unique())
-            
-        except UnicodeDecodeError:
-            try:
-                # UTF-8로 재시도
-                df = pd.read_csv(os.path.join(DATA_DIR, file), encoding='utf-8')
-                if not df.empty:
-                    target_col = df.columns[0]
-                    if first_file_col_name is None:
-                        first_file_col_name = target_col
-                    player_names_series = df[target_col].dropna().astype(str).str.strip()
-                    names.update(player_names_series.unique())
-            except Exception as e:
-                print(f"파일 로드 오류 (UTF-8): {file} -> {e}")
-                
-        except Exception as e:
-            print(f"파일 로드 오류: {file} -> {e}")
-            
-    return sorted(names), first_file_col_name
 
-# --- 전체 선수 목록 미리 로드 (캐싱) ---
-@st.cache_resource
-def load_all_player_lists():
-    # 반환 값 분리: (이름 목록, 첫 파일 컬럼 이름)
-    hitter_names, hitter_col_name = extract_names_from_first_column(hitter_files)
-    pitcher_names, pitcher_col_name = extract_names_from_first_column(pitcher_files)
-    
-    # ⭐⭐⭐ 수정된 부분: all_pitcher_names 대신 pitcher_names 사용 ⭐⭐⭐
-    return hitter_names, pitcher_names, hitter_col_name, pitcher_col_name
+    for fname in ALL_FILES:
+        path = os.path.join(base_dir, fname)
+        if not os.path.exists(path):
+            # 필요하면 나중에 st.warning으로 바꿔도 됨
+            continue
 
-# 포지션별 전체 선수 목록 로드
-all_hitter_names, all_pitcher_names, hitter_col_name, pitcher_col_name = load_all_player_lists()
+        df = pd.read_excel(path)
+        # 첫 번째 열에서 이름 추출
+        col0 = df.iloc[:, 0].dropna().astype(str)
+        # 앞뒤 공백 제거
+        cleaned = col0.map(lambda x: x.strip())
+        names.update(cleaned.tolist())
 
-# --- 사이드바 구성 ---
-st.sidebar.title("분석 조건 설정")
-position = st.sidebar.radio("선택", ["투수", "타자"], index=0, key='position_radio')
+    # 정렬(한글도 ㄱ~ㅎ 순서대로 정렬됨)
+    return sorted(names)
 
-if position == "타자":
-    current_player_list = all_hitter_names
-    current_col_name = hitter_col_name
-else: # '투수'
-    current_player_list = all_pitcher_names
-    current_col_name = pitcher_col_name
 
-detail_options = ["세부사항없음", "주자 있음", "주자 없음", "이닝별", "월별"]
-detail = st.sidebar.radio("세부사항 (하나만 선택)", detail_options, index=0)
+ALL_PLAYERS = load_all_player_names(BASE_DIR)
+
+# ----------------- 사이드바 -----------------
+st.sidebar.title("설정")
+
+# 1) 투수 / 타자
+st.sidebar.subheader("포지션")
+position = st.sidebar.radio(
+    "선수 포지션을 선택하세요.",
+    ["투수", "타자"],
+    index=0,
+)
+
+# 2) 세부사항
+st.sidebar.subheader("세부사항")
+
+detail_options = ["세부사항 없음", "주자 있음", "주자 없음", "이닝별", "월별"]
+detail = st.sidebar.radio(
+    "세부사항을 하나 선택하세요.",
+    detail_options,
+    index=0,
+)
+
+month_selection = None
+inning_selection = None
 
 if detail == "월별":
-    st.sidebar.select_slider(
-        "월 선택", options=["3~4월", "5월", "6월", "7월", "8월", "9월이후"], value="3~4월"
+    month_selection = st.sidebar.select_slider(
+        "월 선택",
+        options=["3~4월", "5월", "6월", "7월", "8월", "9이후"],
+        value="3~4월",
     )
 elif detail == "이닝별":
-    st.sidebar.select_slider(
-        "이닝 선택", options=["1~3이닝", "4~6이닝", "7이닝 이후"], value="1~3이닝"
+    inning_selection = st.sidebar.select_slider(
+        "이닝 선택",
+        options=["1~3이닝", "4~6이닝", "7이후"],
+        value="1~3이닝",
     )
 
-# --- 메인 화면 ---
-st.title("⚾ KBO 데이터 분석 시각화") 
-search_input = st.text_input("선수 이름 검색창", "", key='search_input')
+# ----------------- 메인 영역 -----------------
 
-# --- 검색 로직 ---
-search_term = search_input.strip().lower()
+# 제목: 2025
+title_text = st.text_input("제목", value="2025")
 
-if search_term:
-    filtered_players = [name for name in current_player_list if search_term in name.lower()]
-else:
-    filtered_players = current_player_list
-
-# 5. 선수 선택박스 및 결과 표시
-selected_player = None
-if filtered_players:
-    selected_player = st.selectbox("선수 선택", filtered_players)
-    st.success(f"선택된 선수: **{position}** - **{selected_player}**")
-else:
-    st.warning(f"'{search_input}'이 포함된 {position} 선수가 없습니다. (현재 로드된 {position} 선수: {len(current_player_list)}명)")
-
-# --- ⭐⭐ 디버그 정보 표시 ⭐⭐
-st.markdown("---")
-st.subheader("🛠️ 디버그 정보 (검색 문제 확인용)")
-st.info(f"선택된 **{position}** 포지션의 파일에서\n첫 번째 열 이름으로 로드된 값: **'{current_col_name}'**\n\n- 이 값이 **'선수명'**이나 **`''`** (빈 문자열)이 될 수 있습니다.\n- 코드는 이 값을 무시하고 **첫 번째 열 (인덱스 0)**에서 선수를 추출했습니다.")
 st.markdown("---")
 
-# --- 이미지 출력 및 시각화 영역 ---
-if selected_player:
-    try:
-        image_path = "data/선수사진_예시.png" 
-        image = Image.open(image_path)
-        st.image(image, caption=f"{selected_player} 선수", width=200)
-    except FileNotFoundError:
-        st.info("선수 사진 파일이 없습니다.")
-    except Exception as e:
-        st.error(f"사진 로드 중 오류 발생: {e}")
-
-st.subheader("📊 스탯 시각화")
-st.markdown(
-    """
-    <div style='border: 2px solid blue; padding: 100px; text-align: center; font-size: 20px; margin-top: 20px;'>
-        **선택된 조건에 맞는 데이터 시각화 차트 영역**
-    </div>
-    """, 
-    unsafe_allow_html=True
+# ---- 선수 이름 검색창 ----
+search_query = st.text_input(
+    "선수 이름 검색창",
+    placeholder="예: 구, 구자, 구자욱 등 일부만 입력해도 검색되게",
 )
+
+matched_players = []
+selected_player = None
+
+if search_query:
+    # 부분 문자열 검색 (대소문자 구분 없이 하고 싶으면 둘 다 lower() 하면 됨)
+    matched_players = [name for name in ALL_PLAYERS if search_query in name]
+
+    if matched_players:
+        selected_player = st.selectbox(
+            "검색 결과에서 선수 선택",
+            matched_players,
+        )
+    else:
+        st.info("검색 결과가 없습니다. (파일에 없는 이름이거나, 오타일 수 있어요)")
+
