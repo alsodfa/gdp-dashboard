@@ -350,4 +350,76 @@ def visualize_pitcher_overall(player_name: str):
 
     # 비율 막대 + 라벨
     whip = value_from_any(dfs.values(), ["이닝당출루허용률","whip"], masks.values())
-    k9   = value_from_any(dfs.values(), ["9이닝당]()
+    k9   = value_from_any(dfs.values(), ["9이닝당 삼진","9이닝당삼진","k/9","k9","so/9","삼진/9","탈삼진/9","탈삼진9"], masks.values())
+    bb9  = value_from_any(dfs.values(), ["9이닝당볼넷","9이닝당 볼넷","bb/9","bb9","볼넷/9"], masks.values())
+    kbb  = value_from_any(dfs.values(), ["삼진/볼넷","k/bb","kbb"], masks.values())
+    o_ops= value_from_any(dfs.values(), ["피ops","피 ops","o-ops","ops"], masks.values())
+    o_avg= value_from_any(dfs.values(), ["피안타율","피타율","oavg","avg","OAVG","BAA"], masks.values())
+
+    rate_df = pd.DataFrame([
+        {"지표":"이닝당출루허용률", "값": whip or 0},
+        {"지표":"9이닝당 삼진", "값": k9 or 0},
+        {"지표":"9이닝당 볼넷", "값": bb9 or 0},
+        {"지표":"삼진/볼넷", "값": kbb or 0},
+        {"지표":"피OPS", "값": o_ops or 0},
+        {"지표":"피안타율", "값": o_avg or 0},
+    ])
+    st.markdown("#### 비율 지표 (투수)")
+    rate_chart = bar_with_labels(rate_df, "지표", "값", ".3f", height=340)
+    st.altair_chart(rate_chart, use_container_width=True)
+
+    # 월별 피안타율 꺾은선 + 가로형 표
+    month_defs = [
+        ("투수_3~4월.xlsx","3~4월"),
+        ("투수_5월.xlsx","5월"),
+        ("투수_6월.xlsx","6월"),
+        ("투수_7월.xlsx","7월"),
+        ("투수_8월.xlsx","8월"),
+        ("투수_9월이후.xlsx","9월이후"),
+    ]
+    rows=[]
+    for fname,label in month_defs:
+        p = next((x for x in PITCHER_PATHS if x.endswith(fname)), None)
+        if not p: continue
+        df = read_xlsx(p)
+        m  = first_col_strip(df)==player_name
+        if m.any():
+            oavg_col = get_col(df, ["피안타율","피타율","oavg","OAVG","BAA","AVG"])
+            val = parse_number(df.loc[m].iloc[0][oavg_col]) if oavg_col else None
+            rows.append({"월":label,"피안타율":val})
+
+    if rows:
+        trend_df = pd.DataFrame(rows)
+        order=[x[1] for x in month_defs]
+        trend_df["월"]=pd.Categorical(trend_df["월"],categories=order,ordered=True)
+        trend_df=trend_df.sort_values("월")
+
+        st.markdown("#### 월별 추이 — 피안타율")
+        st.altair_chart(
+            alt.Chart(trend_df).mark_line(point=True).encode(
+                x=alt.X("월:N", sort=order, axis=alt.Axis(labelAngle=0), title=None),
+                y=alt.Y("피안타율:Q", title=None, scale=alt.Scale(domain=[0,1])),
+                tooltip=[alt.Tooltip("월:N"), alt.Tooltip("피안타율:Q", format=".3f")],
+            ).properties(height=320).interactive()
+        , use_container_width=True)
+
+        table_row = {r["월"]: (0.000 if pd.isna(r["피안타율"]) else round(float(r["피안타율"]),3)) for _, r in trend_df.iterrows()}
+        st.caption("월별 피안타율 (가로형)")
+        st.dataframe(pd.DataFrame([table_row]), use_container_width=True, hide_index=True)
+    else:
+        st.info("월별 피안타율 데이터를 찾지 못했습니다.")
+
+# ===================== 호출 분기 =====================
+if position == "타자" and selected_player:
+    if detail == "세부사항 없음":
+        visualize_batter_overall(selected_player)
+        visualize_batter_monthly_avg(selected_player)
+    else:
+        st.info("타자 주자/이닝/월별 시각화는 앞서 만든 함수로 동작합니다.")
+elif position == "투수" and selected_player:
+    if detail == "세부사항 없음":
+        visualize_pitcher_overall(selected_player)
+    else:
+        st.info("투수의 다른 세부조건(주자/이닝/월별)은 이어서 확장 가능합니다.")
+elif not selected_player:
+    st.info("상단 검색창에 일부 이름을 입력해 선수를 선택해 주세요. (포지션에 따라 검색 대상이 달라집니다.)")
